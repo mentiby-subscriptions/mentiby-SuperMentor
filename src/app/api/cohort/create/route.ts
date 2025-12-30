@@ -58,10 +58,10 @@ const getDayName = (date: Date): string => {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { cohortType, cohortNumber, day1, day2, startDate } = body
+    const { cohortType, cohortNumber, day1, day2, startDate, mentorId } = body
 
     // Validate inputs
-    if (!cohortType || !cohortNumber || !day1 || !day2 || !startDate) {
+    if (!cohortType || !cohortNumber || !day1 || !day2 || !startDate || !mentorId) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -124,6 +124,9 @@ CREATE TABLE IF NOT EXISTS public.${tableName} (
   initial_session_material TEXT,
   session_material TEXT,
   session_recording TEXT,
+  mentor_id INTEGER,
+  teams_meeting_link TEXT,
+  notification_sent BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );`
 
@@ -137,6 +140,9 @@ CREATE TABLE IF NOT EXISTS public.${tableName} (
       if (!createError) {
         tableCreated = true
         console.log(`Table ${tableName} created successfully in Database B`)
+        // Wait for PostgREST schema cache to refresh (takes ~2-3 seconds)
+        console.log('Waiting for schema cache to refresh...')
+        await new Promise(resolve => setTimeout(resolve, 3000))
       } else {
         console.log('RPC function error:', createError.message)
       }
@@ -165,12 +171,15 @@ CREATE TABLE IF NOT EXISTS public.${tableName} (
         }
       }
 
+      // Assign mentor_id only for live sessions
+      const isLiveSession = record.session_type?.toLowerCase() === 'live session'
+
       return {
         id: record.id,
         week_number: record.week_number,
         session_number: record.session_number,
         date: sessionDate ? sessionDate.toISOString().split('T')[0] : null,
-        time: null,
+        time: '21:00:00', // 9 PM
         day: dayName,
         session_type: record.session_type,
         subject_type: record.subject_type,
@@ -179,6 +188,7 @@ CREATE TABLE IF NOT EXISTS public.${tableName} (
         initial_session_material: record.initial_session_material,
         session_material: null,
         session_recording: null,
+        mentor_id: isLiveSession ? mentorId : null,
         created_at: new Date().toISOString()
       }
     })
@@ -217,6 +227,9 @@ BEGIN
       initial_session_material TEXT,
       session_material TEXT,
       session_recording TEXT,
+      mentor_id INTEGER,
+      teams_meeting_link TEXT,
+      notification_sent BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )', table_name);
 END;
@@ -232,57 +245,82 @@ GRANT EXECUTE ON FUNCTION create_cohort_schedule_table(TEXT) TO service_role;`,
       }
     }
 
-    // Try to delete existing data and insert new data in Database B
-    try {
-      // Delete existing data first (if any)
-      await supabaseB
-        .from(tableName)
-        .delete()
-        .gte('id', 0)
+    // Try to delete existing data and insert new data in Database B with retry logic
+    const maxRetries = 3
+    let lastError: any = null
 
-      // Insert new data in batches
-      const batchSize = 100
-      let totalInserted = 0
-
-      for (let i = 0; i < recordsToInsert.length; i += batchSize) {
-        const batch = recordsToInsert.slice(i, i + batchSize)
-        const { error: insertError } = await supabaseB
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Insert attempt ${attempt}/${maxRetries}...`)
+        
+        // Delete existing data first (if any)
+        await supabaseB
           .from(tableName)
-          .insert(batch)
+          .delete()
+          .gte('id', 0)
 
-        if (insertError) {
-          console.error('Error inserting batch:', insertError)
-          throw new Error(`Failed to insert data: ${insertError.message}`)
+        // Insert new data in batches
+        const batchSize = 100
+        let totalInserted = 0
+
+        for (let i = 0; i < recordsToInsert.length; i += batchSize) {
+          const batch = recordsToInsert.slice(i, i + batchSize)
+          const { error: insertError } = await supabaseB
+            .from(tableName)
+            .insert(batch)
+
+          if (insertError) {
+            // If schema cache error, throw to trigger retry
+            if (insertError.message?.includes('schema cache') || insertError.code === 'PGRST205') {
+              throw new Error(`Schema cache not ready: ${insertError.message}`)
+            }
+            console.error('Error inserting batch:', insertError)
+            throw new Error(`Failed to insert data: ${insertError.message}`)
+          }
+
+          totalInserted += batch.length
         }
 
-        totalInserted += batch.length
-      }
+        return NextResponse.json({
+          success: true,
+          message: `Successfully created ${tableName} schedule`,
+          tableName,
+          recordsInserted: totalInserted
+        })
 
-      return NextResponse.json({
-        success: true,
-        message: `Successfully created ${tableName} schedule`,
-        tableName,
-        recordsInserted: totalInserted
-      })
-
-    } catch (insertError: any) {
-      console.error('Insert error:', insertError)
-      
-      // Check if error is due to table not existing
-      if (insertError.message?.includes('does not exist') || insertError.message?.includes('relation')) {
-        return NextResponse.json(
-          { 
-            error: `Table ${tableName} needs to be created first in Database B.`,
-            setupRequired: true,
-            manualSQL: createTableSQL,
-            note: 'Please run the SQL in Database B (Mentiby Public Database) SQL editor to create the table.'
-          },
-          { status: 400 }
-        )
+      } catch (insertError: any) {
+        lastError = insertError
+        console.error(`Attempt ${attempt} failed:`, insertError.message)
+        
+        // If schema cache error and not last attempt, wait and retry
+        if ((insertError.message?.includes('schema cache') || insertError.message?.includes('PGRST205')) && attempt < maxRetries) {
+          console.log(`Waiting 2 seconds before retry...`)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          continue
+        }
+        
+        // Check if error is due to table not existing (and not schema cache)
+        if (insertError.message?.includes('does not exist') || insertError.message?.includes('relation')) {
+          return NextResponse.json(
+            { 
+              error: `Table ${tableName} needs to be created first in Database B.`,
+              setupRequired: true,
+              manualSQL: createTableSQL,
+              note: 'Please run the SQL in Database B (Mentiby Public Database) SQL editor to create the table.'
+            },
+            { status: 400 }
+          )
+        }
+        
+        // For other errors on last attempt, throw
+        if (attempt === maxRetries) {
+          throw insertError
+        }
       }
-      
-      throw insertError
     }
+
+    // Should not reach here, but just in case
+    throw lastError || new Error('Failed to insert data after retries')
 
   } catch (error: any) {
     console.error('Error in cohort creation:', error)

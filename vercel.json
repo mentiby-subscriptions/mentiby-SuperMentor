@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/scheduler/generate-meetings",
+      "schedule": "30 0 * * *"
+    },
+    {
+      "path": "/api/scheduler/send-notifications",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
+

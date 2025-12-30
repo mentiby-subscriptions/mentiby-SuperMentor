@@ -1,7 +1,10 @@
 -- ============================================
--- Run this SQL ONCE in your Supabase SQL Editor
--- This creates a function that allows the API to create cohort tables dynamically
+-- Run this SQL in Database B (Mentiby Public Database)
+-- This creates/updates the function for auto table creation
 -- ============================================
+
+-- Drop existing function if it exists (to update schema)
+DROP FUNCTION IF EXISTS create_cohort_schedule_table(TEXT);
 
 -- Create the function to create cohort schedule tables
 CREATE OR REPLACE FUNCTION create_cohort_schedule_table(table_name TEXT)
@@ -22,6 +25,9 @@ BEGIN
       initial_session_material TEXT,
       session_material TEXT,
       session_recording TEXT,
+      mentor_id INTEGER,
+      teams_meeting_link TEXT,
+      notification_sent BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )', table_name);
 END;
@@ -32,6 +38,7 @@ GRANT EXECUTE ON FUNCTION create_cohort_schedule_table(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION create_cohort_schedule_table(TEXT) TO service_role;
 
 -- ============================================
--- After running this, your Cohort Initiator will work automatically!
+-- After running this, your Cohort Initiator will:
+-- 1. Auto-create tables with mentor_id column
+-- 2. Assign mentor to all "live session" rows
 -- ============================================
-

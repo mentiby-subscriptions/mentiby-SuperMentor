@@ -67,6 +67,36 @@
   display: none;  /* Safari and Chrome */
 }
 
+/* Show scrollbar only when scrolling/hovering */
+.scrollbar-hide-until-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s ease;
+}
+
+.scrollbar-hide-until-scroll:hover {
+  scrollbar-color: hsl(var(--muted-foreground) / 0.5) transparent;
+}
+
+.scrollbar-hide-until-scroll::-webkit-scrollbar {
+  height: 6px;
+  background: transparent;
+}
+
+.scrollbar-hide-until-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.3s ease;
+}
+
+.scrollbar-hide-until-scroll:hover::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+.scrollbar-hide-until-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.7);
+}
+
 /* Gradient text utilities */
 .gradient-text {
   background: linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899);

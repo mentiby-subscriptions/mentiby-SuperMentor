@@ -14,6 +14,7 @@ import { Menu, X } from 'lucide-react'
 import FeedbackTable from '@/components/FeedbackTable'
 import MentibyCallingAgent from '@/components/MentibyCallingAgent'
 import CohortInitiator from '@/components/CohortInitiator'
+import CohortScheduleEditor from '@/components/CohortScheduleEditor'
 
 // Temporary local type definition for FeedbackData
 type FeedbackData = {
@@ -26,7 +27,7 @@ type FeedbackData = {
 }
 
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator'>('table')
+  const [activeTab, setActiveTab] = useState<'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor'>('table')
   const [onboardingData, setOnboardingData] = useState<OnboardingData[]>([])
   const [feedbackData, setFeedbackData] = useState<FeedbackData[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -84,7 +85,7 @@ function AdminPanel() {
     }
   }
 
-  const handleTabChange = (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator') => {
+  const handleTabChange = (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor') => {
     setActiveTab(tab)
     setIsMobileMenuOpen(false) // Close mobile menu when tab changes
   }
@@ -135,6 +136,8 @@ function AdminPanel() {
         return <MentibyCallingAgent/>
       case 'cohort-initiator':
         return <CohortInitiator />
+      case 'cohort-schedule-editor':
+        return <CohortScheduleEditor />
       default:
         return <DataTable data={onboardingData} isLoading={isLoading} onDataUpdate={fetchData} />
     }

@@ -1,13 +1,13 @@
 'use client'
 
-import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket } from 'lucide-react'
+import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket, Edit3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { useState, useEffect } from 'react'
 
 interface SidebarProps {
-  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator'
-  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator') => void
+  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor'
+  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor') => void
 }
 
 export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
@@ -43,53 +43,18 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
 
   const menuItems = [
     {
-      id: 'table' as const,
-      label: 'Onboarding Data',
-      icon: Database,
-      description: 'View and filter student data',
-      gradient: 'gradient-blue'
-    },
-    {
-      id: 'xp' as const,
-      label: 'XP Leaderboard',
-      icon: Trophy,
-      description: 'Student XP rankings',
-      gradient: 'gradient-gold'
-    },
-    {
-      id: 'records' as const,
-      label: 'Attendance Records',
-      icon: ClipboardList,
-      description: 'View attendance statistics by cohort',
-      gradient: 'gradient-blue'
-    },
-    {
-      id: 'mbycallingagent' as const,
-      label: 'Mentiby Calling Agent',
-      icon: MessageSquare,
-      description: 'Calling agent for Mentiby',
-      gradient: 'gradient-orange'
-    },
-    {
-      id: 'attendance' as const,
-      label: 'Attendance Upload',
-      icon: Upload,
-      description: 'Upload attendance CSV files',
-      gradient: 'gradient-green'
-    },
-    {
-      id: 'charts' as const,
-      label: 'Cohort Graphs',
-      icon: PieChart,
-      description: 'Analytics and charts',
-      gradient: 'gradient-purple'
-    },
-    {
       id: 'cohort-initiator' as const,
       label: 'Cohort Initiator',
       icon: Rocket,
       description: 'Create new cohort schedules',
       gradient: 'gradient-orange'
+    },
+    {
+      id: 'cohort-schedule-editor' as const,
+      label: 'Cohort Schedule Editor',
+      icon: Edit3,
+      description: 'Edit existing cohort schedules',
+      gradient: 'gradient-blue'
     }
   ]
 
