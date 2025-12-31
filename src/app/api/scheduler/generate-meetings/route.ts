@@ -64,8 +64,16 @@ async function createTeamsMeeting(
       startDateTime,
       endDateTime,
       subject,
-      lobbyBypassSettings: { scope: 'everyone', isDialInBypassEnabled: true },
-      allowedPresenters: 'everyone'
+      lobbyBypassSettings: { 
+        scope: 'everyone',
+        isDialInBypassEnabled: true 
+      },
+      autoAdmittedUsers: 'everyone',
+      allowedPresenters: 'everyone',
+      // Allow participants to join before organizer
+      joinMeetingIdSettings: {
+        isPasscodeRequired: false
+      }
     })
   })
 
