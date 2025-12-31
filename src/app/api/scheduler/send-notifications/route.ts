@@ -195,6 +195,9 @@ export async function POST(request: Request) {
                 studentEmailsSent++
                 totalEmailsSent++
               }
+              
+              // Rate limit: wait 600ms between emails (max 2 per second on Resend free plan)
+              await new Promise(resolve => setTimeout(resolve, 600))
             }
 
             // Send email to mentor
@@ -225,6 +228,8 @@ export async function POST(request: Request) {
               } else {
                 console.log(`❌ Failed to send mentor email to ${mentorEmail}`)
               }
+              // Rate limit delay after mentor email
+              await new Promise(resolve => setTimeout(resolve, 600))
             } else {
               console.log(`⚠️ No mentor email found for session ${session.id} (mentor_id: ${session.mentor_id})`)
             }
