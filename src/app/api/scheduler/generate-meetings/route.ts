@@ -55,7 +55,7 @@ async function createTeamsMeeting(
 
   const url = `${MS_GRAPH_API_URL}/users/${organizerUserId}/onlineMeetings`
 
-  // Build meeting body
+  // Build meeting body - lobby bypass allows everyone to join without waiting
   const meetingBody: any = {
     startDateTime,
     endDateTime,
@@ -65,26 +65,11 @@ async function createTeamsMeeting(
       isDialInBypassEnabled: true 
     },
     autoAdmittedUsers: 'everyone',
-    allowedPresenters: 'everyone',
-    joinMeetingIdSettings: {
-      isPasscodeRequired: false
-    }
+    allowedPresenters: 'everyone'
   }
-
-  // Add co-organizer if email provided
+  
   if (coOrganizerEmail) {
-    meetingBody.participants = {
-      attendees: [],
-      organizer: {
-        upn: organizerUserId
-      }
-    }
-    // Add mentor as co-organizer via invite
-    meetingBody.participants.attendees.push({
-      upn: coOrganizerEmail,
-      role: 'coOrganizer'
-    })
-    console.log(`Adding co-organizer: ${coOrganizerEmail}`)
+    console.log(`Meeting for co-organizer: ${coOrganizerEmail} (lobby bypass enabled)`)
   }
 
   const response = await fetch(url, {
