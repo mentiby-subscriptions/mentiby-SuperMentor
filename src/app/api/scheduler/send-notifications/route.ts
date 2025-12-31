@@ -45,6 +45,9 @@ export async function POST(request: Request) {
       for (const mentor of allMentors) {
         mentorMap.set(mentor.mentor_id, mentor)
       }
+      console.log(`Loaded ${allMentors.length} mentors. Sample:`, allMentors[0] ? { id: allMentors[0].mentor_id, name: allMentors[0].Name, email: allMentors[0]['Email address'] } : 'none')
+    } else {
+      console.log('WARNING: No mentors loaded from database!')
     }
     
     // Helper to get mentor info
@@ -162,6 +165,8 @@ export async function POST(request: Request) {
             const mentorInfo = getMentorInfo(session.mentor_id)
             const mentorName = mentorInfo.name
             const mentorEmail = mentorInfo.email
+            
+            console.log(`Session ${session.id} - mentor_id: ${session.mentor_id}, mentorName: ${mentorName}, mentorEmail: ${mentorEmail || 'NOT FOUND'}`)
 
             let studentEmailsSent = 0
 
@@ -194,6 +199,7 @@ export async function POST(request: Request) {
 
             // Send email to mentor
             if (mentorEmail) {
+              console.log(`Sending mentor email to: ${mentorEmail}`)
               const mentorEmailHtml = generateMentorEmailHTML({
                 mentorName,
                 sessionDate,
@@ -215,7 +221,12 @@ export async function POST(request: Request) {
 
               if (mentorSent) {
                 totalMentorEmailsSent++
+                console.log(`✅ Mentor email sent successfully to ${mentorEmail}`)
+              } else {
+                console.log(`❌ Failed to send mentor email to ${mentorEmail}`)
               }
+            } else {
+              console.log(`⚠️ No mentor email found for session ${session.id} (mentor_id: ${session.mentor_id})`)
             }
 
             // Mark notification as sent (if column exists)
