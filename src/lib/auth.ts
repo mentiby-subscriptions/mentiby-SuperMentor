@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
 import type { User, Session } from '@supabase/supabase-js'
 
-// Create a separate Supabase client for authentication (using B instance)
+// Create a separate Supabase client for authentication (using main database)
 const supabaseAuth = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL_B!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_B!
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 export interface AuthUser {
