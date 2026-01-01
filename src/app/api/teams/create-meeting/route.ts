@@ -9,6 +9,7 @@ interface MeetingDetails {
   startDateTime: string // ISO format
   endDateTime: string // ISO format
   timeZone?: string
+  attendees?: string[] // Email addresses of attendees
 }
 
 // Get access token using client credentials flow
@@ -47,7 +48,65 @@ async function getAccessToken(): Promise<string> {
   return data.access_token
 }
 
-// Create an online meeting
+// Create a calendar event with online meeting (creates chat automatically)
+async function createCalendarEventWithMeeting(
+  accessToken: string,
+  userId: string,
+  meeting: MeetingDetails
+): Promise<{ joinUrl: string; meetingId: string; eventId: string }> {
+  const url = `${MS_GRAPH_API_URL}/users/${userId}/events`
+
+  // Build attendees list
+  const attendeesList = (meeting.attendees || []).map(email => ({
+    emailAddress: { address: email },
+    type: 'required'
+  }))
+
+  const eventBody = {
+    subject: meeting.subject,
+    start: {
+      dateTime: meeting.startDateTime,
+      timeZone: meeting.timeZone || 'Asia/Kolkata'
+    },
+    end: {
+      dateTime: meeting.endDateTime,
+      timeZone: meeting.timeZone || 'Asia/Kolkata'
+    },
+    // This is the key - enables Teams meeting with chat
+    isOnlineMeeting: true,
+    onlineMeetingProvider: 'teamsForBusiness',
+    // Attendees will get calendar invite and be part of the chat
+    attendees: attendeesList,
+    // Meeting settings
+    allowNewTimeProposals: false,
+    responseRequested: false
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(eventBody)
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    console.error('Calendar event creation error:', error)
+    throw new Error(`Failed to create calendar event: ${error}`)
+  }
+
+  const data = await response.json()
+  
+  return {
+    joinUrl: data.onlineMeeting?.joinUrl || '',
+    meetingId: data.onlineMeeting?.id || data.id,
+    eventId: data.id
+  }
+}
+
+// Legacy: Create standalone online meeting (no chat)
 async function createOnlineMeeting(
   accessToken: string,
   userId: string,
@@ -90,7 +149,14 @@ async function createOnlineMeeting(
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { subject, startDateTime, endDateTime, timeZone = 'Asia/Kolkata' } = body
+    const { 
+      subject, 
+      startDateTime, 
+      endDateTime, 
+      timeZone = 'Asia/Kolkata',
+      attendees = [],
+      useCalendarEvent = true // Default to calendar event (creates chat)
+    } = body
 
     if (!subject || !startDateTime || !endDateTime) {
       return NextResponse.json(
@@ -111,18 +177,34 @@ export async function POST(request: Request) {
       )
     }
 
-    // Create the meeting
-    const meeting = await createOnlineMeeting(accessToken, organizerUserId, {
-      subject,
-      startDateTime,
-      endDateTime,
-      timeZone
-    })
+    let result
+
+    if (useCalendarEvent) {
+      // Create calendar event with Teams meeting (creates chat)
+      result = await createCalendarEventWithMeeting(accessToken, organizerUserId, {
+        subject,
+        startDateTime,
+        endDateTime,
+        timeZone,
+        attendees
+      })
+    } else {
+      // Legacy: Create standalone meeting (no chat)
+      const meeting = await createOnlineMeeting(accessToken, organizerUserId, {
+        subject,
+        startDateTime,
+        endDateTime,
+        timeZone
+      })
+      result = { ...meeting, eventId: null }
+    }
 
     return NextResponse.json({
       success: true,
-      joinUrl: meeting.joinUrl,
-      meetingId: meeting.meetingId
+      joinUrl: result.joinUrl,
+      meetingId: result.meetingId,
+      eventId: result.eventId || null,
+      hasChat: useCalendarEvent // Indicates if meeting has associated chat
     })
 
   } catch (error: any) {
@@ -133,4 +215,3 @@ export async function POST(request: Request) {
     )
   }
 }
-

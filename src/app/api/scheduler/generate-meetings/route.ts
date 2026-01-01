@@ -40,13 +40,116 @@ async function getAccessToken(): Promise<string> {
   return data.access_token
 }
 
-// Create Teams meeting with co-organizer
-async function createTeamsMeeting(
+// Create Teams meeting via calendar event (creates chat automatically)
+async function createTeamsMeetingWithChat(
   accessToken: string,
   subject: string,
   startDateTime: string,
   endDateTime: string,
-  coOrganizerEmail?: string
+  attendeeEmails: string[] = []
+): Promise<string> {
+  const organizerUserId = process.env.MS_ORGANIZER_USER_ID
+  if (!organizerUserId) {
+    throw new Error('MS_ORGANIZER_USER_ID not configured')
+  }
+
+  const url = `${MS_GRAPH_API_URL}/users/${organizerUserId}/events`
+
+  // Build attendees list (mentor + any other attendees)
+  const attendees = attendeeEmails
+    .filter(email => email && email.trim())
+    .map(email => ({
+      emailAddress: { address: email.trim() },
+      type: 'required'
+    }))
+
+  // Create calendar event with Teams meeting - this creates the chat!
+  const eventBody = {
+    subject,
+    start: {
+      dateTime: startDateTime,
+      timeZone: 'Asia/Kolkata'
+    },
+    end: {
+      dateTime: endDateTime,
+      timeZone: 'Asia/Kolkata'
+    },
+    // This is the key setting - creates Teams meeting with chat
+    isOnlineMeeting: true,
+    onlineMeetingProvider: 'teamsForBusiness',
+    // Add attendees (they'll be part of the chat)
+    attendees,
+    // Don't require response
+    responseRequested: false,
+    allowNewTimeProposals: false
+  }
+
+  console.log(`Creating calendar event with chat for: ${subject}`)
+  if (attendees.length > 0) {
+    console.log(`  Attendees: ${attendeeEmails.join(', ')}`)
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(eventBody)
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    console.error('Calendar event creation error:', errorText)
+    throw new Error(`Failed to create calendar event: ${errorText}`)
+  }
+
+  const data = await response.json()
+  
+  // The join URL is in onlineMeeting.joinUrl
+  const joinUrl = data.onlineMeeting?.joinUrl
+  const onlineMeetingId = data.onlineMeeting?.id // Meeting ID to patch for recording settings
+  
+  if (!joinUrl) {
+    console.error('No join URL in response:', JSON.stringify(data, null, 2))
+    throw new Error('Meeting created but no join URL returned')
+  }
+
+  // Enable auto-recording by patching the online meeting
+  if (onlineMeetingId) {
+    try {
+      const patchUrl = `${MS_GRAPH_API_URL}/users/${organizerUserId}/onlineMeetings/${onlineMeetingId}`
+      const patchResponse = await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          recordAutomatically: true
+        })
+      })
+      
+      if (patchResponse.ok) {
+        console.log(`  Enabled auto-recording for meeting`)
+      } else {
+        console.log(`  Warning: Could not enable auto-recording: ${await patchResponse.text()}`)
+      }
+    } catch (patchError) {
+      console.log(`  Warning: Failed to patch meeting for auto-recording:`, patchError)
+    }
+  }
+
+  console.log(`  Created meeting with chat: ${joinUrl.substring(0, 50)}...`)
+  return joinUrl
+}
+
+// Fallback: Create standalone online meeting (no chat, but always works)
+async function createOnlineMeetingFallback(
+  accessToken: string,
+  subject: string,
+  startDateTime: string,
+  endDateTime: string
 ): Promise<string> {
   const organizerUserId = process.env.MS_ORGANIZER_USER_ID
   if (!organizerUserId) {
@@ -55,8 +158,7 @@ async function createTeamsMeeting(
 
   const url = `${MS_GRAPH_API_URL}/users/${organizerUserId}/onlineMeetings`
 
-  // Build meeting body - lobby bypass allows everyone to join without waiting
-  const meetingBody: any = {
+  const meetingBody = {
     startDateTime,
     endDateTime,
     subject,
@@ -65,11 +167,8 @@ async function createTeamsMeeting(
       isDialInBypassEnabled: true 
     },
     autoAdmittedUsers: 'everyone',
-    allowedPresenters: 'everyone'
-  }
-  
-  if (coOrganizerEmail) {
-    console.log(`Meeting for co-organizer: ${coOrganizerEmail} (lobby bypass enabled)`)
+    allowedPresenters: 'everyone',
+    recordAutomatically: true // Auto-start recording when meeting begins
   }
 
   const response = await fetch(url, {
@@ -83,12 +182,36 @@ async function createTeamsMeeting(
 
   if (!response.ok) {
     const errorText = await response.text()
-    console.error('Meeting creation error:', errorText)
-    throw new Error(`Failed to create meeting: ${errorText}`)
+    throw new Error(`Failed to create online meeting: ${errorText}`)
   }
 
   const data = await response.json()
+  console.log(`  Created meeting (fallback, no chat): ${data.joinWebUrl.substring(0, 50)}...`)
   return data.joinWebUrl
+}
+
+// Parse table name to get cohort type and number
+// e.g., "basic1_1_schedule" -> { type: "Basic", number: "1.1" }
+// e.g., "placement2_0_schedule" -> { type: "Placement", number: "2.0" }
+function parseCohortFromTableName(tableName: string): { type: string; number: string } | null {
+  // Remove _schedule suffix
+  const name = tableName.replace('_schedule', '')
+  
+  // Match pattern like "basic1_1" or "placement2_0"
+  const match = name.match(/^([a-zA-Z]+)(\d+)_(\d+)$/)
+  
+  if (!match) {
+    console.log(`Could not parse cohort from table name: ${tableName}`)
+    return null
+  }
+  
+  const [, typeRaw, major, minor] = match
+  
+  // Capitalize first letter for cohort type
+  const type = typeRaw.charAt(0).toUpperCase() + typeRaw.slice(1)
+  const number = `${major}.${minor}`
+  
+  return { type, number }
 }
 
 // Get all cohort schedule tables dynamically from Database B
@@ -137,10 +260,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Initialize Supabase B client
+    // Initialize Supabase clients
     const supabaseB = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL_B!,
       process.env.SUPABASE_SERVICE_ROLE_KEY_B!
+    )
+    
+    // Main Supabase for student data (onboarding table)
+    const supabaseMain = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
     // Fetch all mentors for co-organizer lookup
@@ -182,16 +311,47 @@ export async function POST(request: Request) {
 
     const results: any[] = []
     const cohortTables = await getCohortTables(supabaseB)
+    
+    // Cache for student emails per cohort (to avoid repeated queries)
+    const studentEmailsCache = new Map<string, string[]>()
 
     for (const tableName of cohortTables) {
       try {
-        // Fetch sessions in the next 7 days that don't have a meeting link yet
+        // Parse cohort info from table name
+        const cohortInfo = parseCohortFromTableName(tableName)
+        
+        // Fetch students for this cohort (cache to avoid repeated queries)
+        let studentEmails: string[] = []
+        if (cohortInfo) {
+          const cacheKey = `${cohortInfo.type}_${cohortInfo.number}`
+          
+          if (studentEmailsCache.has(cacheKey)) {
+            studentEmails = studentEmailsCache.get(cacheKey) || []
+          } else {
+            const { data: students, error: studentsError } = await supabaseMain
+              .from('onboarding')
+              .select('Email')
+              .eq('Cohort Type', cohortInfo.type)
+              .eq('Cohort Number', cohortInfo.number)
+            
+            if (studentsError) {
+              console.error(`Error fetching students for ${cacheKey}:`, studentsError)
+            } else if (students) {
+              studentEmails = students
+                .map(s => s.Email)
+                .filter((email): email is string => !!email && email.includes('@'))
+              studentEmailsCache.set(cacheKey, studentEmails)
+              console.log(`Loaded ${studentEmails.length} students for ${cohortInfo.type} ${cohortInfo.number}`)
+            }
+          }
+        }
+
+        // Fetch sessions in the next 7 days (we'll filter for missing links in code)
         const { data: sessions, error: fetchError } = await supabaseB
           .from(tableName)
           .select('*')
           .gte('date', todayStr)
           .lte('date', nextWeekStr)
-          .or('teams_meeting_link.is.null,teams_meeting_link.eq.')
           .not('session_type', 'is', null)
 
         if (fetchError) {
@@ -222,12 +382,23 @@ export async function POST(request: Request) {
 
         for (const session of sessions) {
           try {
-            // Skip if no date or already has link
-            if (!session.date || session.teams_meeting_link) continue
+            // Skip if no date
+            if (!session.date) {
+              console.log(`Skipping session ${session.id}: no date`)
+              continue
+            }
+            
+            // Skip if already has a valid link (not null, not empty, not just whitespace)
+            const existingLink = session.teams_meeting_link
+            if (existingLink && existingLink.trim() !== '' && existingLink !== 'null') {
+              console.log(`Skipping session ${session.id}: already has link - "${existingLink.substring(0, 50)}..."`)
+              continue
+            }
 
-            // Create meeting subject
-            const cohortName = tableName.replace('_schedule', '').replace('_', ' ').toUpperCase()
-            const subject = `${cohortName} - ${session.subject_name || 'Session'}: ${session.subject_topic || 'Class'}`
+            // Create meeting subject: "Cohort Basic 1.1 - Web Development"
+            const cohortTypeForSubject = cohortInfo?.type || 'Unknown'
+            const cohortNumberForSubject = cohortInfo?.number || '0.0'
+            const subject = `Cohort ${cohortTypeForSubject} ${cohortNumberForSubject} - ${session.subject_name || 'Session'}`
 
             // Default time if not set (you can customize this)
             const sessionTime = session.time || '19:00:00' // 7 PM default
@@ -238,17 +409,40 @@ export async function POST(request: Request) {
             startDate.setMinutes(startDate.getMinutes() + 90)
             const endDateTime = startDate.toISOString()
 
-            // Get mentor email for co-organizer
+            // Get mentor email
             const mentorEmail = session.mentor_id ? mentorMap.get(session.mentor_id) : undefined
             
-            // Create Teams meeting with mentor as co-organizer
-            const meetingLink = await createTeamsMeeting(
-              accessToken,
-              subject,
-              new Date(`${session.date}T${sessionTime}`).toISOString(),
-              endDateTime,
-              mentorEmail
-            )
+            // Combine mentor + all students as attendees
+            const attendees: string[] = []
+            if (mentorEmail) {
+              attendees.push(mentorEmail)
+            }
+            // Add all student emails for this cohort
+            attendees.push(...studentEmails)
+            
+            console.log(`Creating meeting for ${subject} with ${attendees.length} attendees (1 mentor + ${studentEmails.length} students)`)
+            
+            let meetingLink: string
+            
+            try {
+              // Try calendar event first (creates chat automatically)
+              meetingLink = await createTeamsMeetingWithChat(
+                accessToken,
+                subject,
+                new Date(`${session.date}T${sessionTime}`).toISOString(),
+                endDateTime,
+                attendees
+              )
+            } catch (calendarError: any) {
+              // Fallback to old method if calendar API fails (no chat, but creates meeting)
+              console.log(`Calendar API failed, falling back to onlineMeetings API: ${calendarError.message}`)
+              meetingLink = await createOnlineMeetingFallback(
+                accessToken,
+                subject,
+                new Date(`${session.date}T${sessionTime}`).toISOString(),
+                endDateTime
+              )
+            }
 
             // Update the session with the meeting link
             const { error: updateError } = await supabaseB
@@ -271,7 +465,8 @@ export async function POST(request: Request) {
           table: tableName,
           status: 'success',
           sessionsFound: sessions.length,
-          meetingsCreated
+          meetingsCreated,
+          studentsInCohort: studentEmails.length
         })
 
       } catch (tableError: any) {
