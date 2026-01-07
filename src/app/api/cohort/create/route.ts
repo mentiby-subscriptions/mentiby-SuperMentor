@@ -181,7 +181,20 @@ CREATE TABLE IF NOT EXISTS public.${tableName} (
     }
 
     // Transform and prepare data for insertion
-    const startDateObj = new Date(startDate)
+    // Use noon to avoid timezone issues when parsing date string
+    // First extract just the date part (YYYY-MM-DD) in case startDate has time component
+    const dateOnly = String(startDate).split('T')[0]
+    const startDateObj = new Date(dateOnly + 'T12:00:00')
+    
+    // Validate the date
+    if (isNaN(startDateObj.getTime())) {
+      return NextResponse.json(
+        { error: `Invalid start date: ${startDate}` },
+        { status: 400 }
+      )
+    }
+    
+    console.log(`Parsed start date: ${dateOnly} -> ${startDateObj.toISOString()} (${startDateObj.toDateString()})`)
     const recordsToInsert = genScheduleData.map((record: any) => {
       let sessionDate = null
       let dayName = null

@@ -21,7 +21,7 @@ interface Mentor {
   email: string
 }
 
-type EditorTab = 'view' | 'postpone' | 'prepone' | 'bulk-edit'
+type EditorTab = 'view' | 'postpone' | 'prepone' | 'bulk-edit' | 'shift-class'
 
 interface ScheduleRow {
   id: number
@@ -167,6 +167,13 @@ export default function CohortScheduleEditor() {
   const [selectedBulkFields, setSelectedBulkFields] = useState<Set<keyof ScheduleRow>>(new Set())
   const [bulkEditValues, setBulkEditValues] = useState<Record<string, string>>({})
   const [isBulkSaving, setIsBulkSaving] = useState(false)
+
+  // Shift Bulk Class state
+  const [shiftSelectedSession, setShiftSelectedSession] = useState<ScheduleRow | null>(null)
+  const [shiftNewDate, setShiftNewDate] = useState<string>('')
+  const [shiftPreview, setShiftPreview] = useState<any[] | null>(null)
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+  const [isShifting, setIsShifting] = useState(false)
 
   // Click outside handler
   useEffect(() => {
@@ -1636,6 +1643,7 @@ export default function CohortScheduleEditor() {
   const editorTabs = [
     { id: 'postpone' as EditorTab, label: 'Postpone Class', icon: ArrowRight },
     { id: 'prepone' as EditorTab, label: 'Prepone Class', icon: ArrowLeft },
+    { id: 'shift-class' as EditorTab, label: 'Shift Bulk Class', icon: Calendar },
     { id: 'view' as EditorTab, label: 'Bulk Edit Cohort Schedules', icon: Edit3 },
     // { id: 'bulk-edit' as EditorTab, label: 'Bulk Edit', icon: Edit3 },
   ]
@@ -2358,6 +2366,221 @@ export default function CohortScheduleEditor() {
     )
   }
 
+  // Shift Class functions
+  const fetchShiftPreview = async (sessionId: number, newDate: string) => {
+    if (!tableName || !sessionId || !newDate) return
+    
+    setIsLoadingPreview(true)
+    try {
+      const response = await fetch(
+        `/api/cohort/shift-class?tableName=${tableName}&sessionId=${sessionId}&newDate=${newDate}`
+      )
+      const result = await response.json()
+      
+      if (result.success) {
+        setShiftPreview(result.preview)
+      } else {
+        showToast(result.error || 'Failed to load preview', 'error')
+        setShiftPreview(null)
+      }
+    } catch (error) {
+      console.error('Error fetching preview:', error)
+      showToast('Failed to load preview', 'error')
+      setShiftPreview(null)
+    } finally {
+      setIsLoadingPreview(false)
+    }
+  }
+
+  const handleShiftClass = async () => {
+    if (!tableName || !shiftSelectedSession || !shiftNewDate) return
+    
+    setIsShifting(true)
+    try {
+      const response = await fetch('/api/cohort/shift-class', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tableName,
+          sessionId: shiftSelectedSession.id,
+          newDate: shiftNewDate
+        })
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        showToast(`Successfully shifted class and rescheduled ${result.updatedCount - 1} subsequent classes`, 'success')
+        // Reset state
+        setShiftSelectedSession(null)
+        setShiftNewDate('')
+        setShiftPreview(null)
+        // Refresh schedule
+        await fetchScheduleData(tableName)
+      } else {
+        showToast(result.error || 'Failed to shift class', 'error')
+      }
+    } catch (error) {
+      console.error('Error shifting class:', error)
+      showToast('Failed to shift class', 'error')
+    } finally {
+      setIsShifting(false)
+    }
+  }
+
+  const renderShiftClassTab = () => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayStr = today.toISOString().split('T')[0]
+
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-2">Shift Bulk Class</h3>
+          <p className="text-sm text-muted-foreground">
+            Shift a class to any new date. All subsequent classes will be automatically rescheduled following the day pattern.
+          </p>
+        </div>
+
+        {/* Step 1: Select Session */}
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-foreground">
+            1. Select Class to Shift
+          </label>
+          <select
+            value={shiftSelectedSession?.id || ''}
+            onChange={(e) => {
+              const session = scheduleData.find(s => s.id === parseInt(e.target.value))
+              setShiftSelectedSession(session || null)
+              setShiftNewDate('')
+              setShiftPreview(null)
+            }}
+            className="w-full px-4 py-3 bg-input/50 border border-border/50 rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">Select a class...</option>
+            {scheduleData.map((session) => (
+              <option key={session.id} value={session.id}>
+                Week {session.week_number} - S{session.session_number}: {session.subject_name} ({session.date} - {session.day})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Step 2: Select New Date */}
+        {shiftSelectedSession && (
+          <div className="space-y-4 animate-in slide-in-from-top-2">
+            <label className="block text-sm font-medium text-foreground">
+              2. Select New Date (No Restrictions)
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                type="date"
+                value={shiftNewDate}
+                min={todayStr}
+                onChange={(e) => {
+                  setShiftNewDate(e.target.value)
+                  if (e.target.value && shiftSelectedSession) {
+                    fetchShiftPreview(shiftSelectedSession.id, e.target.value)
+                  }
+                }}
+                className="flex-1 px-4 py-3 bg-input/50 border border-border/50 rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-primary [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:brightness-100"
+              />
+              {shiftNewDate && (
+                <span className="text-sm text-muted-foreground">
+                  {new Date(shiftNewDate + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'long' })}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-amber-400">
+              ⚠️ Current class date: {shiftSelectedSession.date} ({shiftSelectedSession.day})
+            </p>
+          </div>
+        )}
+
+        {/* Loading Preview */}
+        {isLoadingPreview && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-primary mr-2" />
+            <span className="text-muted-foreground">Loading preview...</span>
+          </div>
+        )}
+
+        {/* Step 3: Preview */}
+        {shiftPreview && shiftPreview.length > 0 && !isLoadingPreview && (
+          <div className="space-y-4 animate-in slide-in-from-top-2">
+            <label className="block text-sm font-medium text-foreground">
+              3. Preview Changes ({shiftPreview.length} classes will be affected)
+            </label>
+            <div className="max-h-64 overflow-y-auto border border-border/50 rounded-xl">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/30 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Old Session</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">→</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">New Session</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Subject</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Old Date</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">→</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">New Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {shiftPreview.map((item, idx) => (
+                    <tr key={item.id} className={idx === 0 ? 'bg-violet-500/10' : ''}>
+                      <td className="px-3 py-2 text-red-400 line-through">
+                        W{item.oldWeek || item.week_number}-S{item.oldSession || item.session_number}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">→</td>
+                      <td className="px-3 py-2 text-green-400 font-medium">
+                        W{item.newWeek || item.week_number}-S{item.newSession || item.session_number}
+                        {idx === 0 && <span className="ml-1 text-xs text-violet-400">(Shifted)</span>}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.subject_name}</td>
+                      <td className="px-3 py-2 text-red-400 line-through">
+                        {item.oldDate} ({item.oldDay?.slice(0, 3)})
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">→</td>
+                      <td className="px-3 py-2 text-green-400">
+                        {item.newDate} ({item.newDay?.slice(0, 3)})
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Confirm Button */}
+            <button
+              onClick={handleShiftClass}
+              disabled={isShifting}
+              className="w-full py-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isShifting ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Shifting Classes...
+                </>
+              ) : (
+                <>
+                  <Calendar className="h-5 w-5" />
+                  Confirm Shift ({shiftPreview.length} classes)
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Empty state when no preview */}
+        {!shiftSelectedSession && (
+          <div className="text-center py-8 text-muted-foreground">
+            <Calendar className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p>Select a class to begin shifting</p>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'view':
@@ -2366,6 +2589,8 @@ export default function CohortScheduleEditor() {
         return renderPostponeTab()
       case 'prepone':
         return renderPreponeTab()
+      case 'shift-class':
+        return renderShiftClassTab()
       case 'bulk-edit':
         return (
           <div className="p-6 text-center text-muted-foreground">

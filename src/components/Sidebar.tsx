@@ -59,6 +59,14 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       glow: 'shadow-lg shadow-blue-500/50'
     },
     {
+      id: 'charts' as const,
+      label: 'Cohort Graphs',
+      icon: PieChart,
+      description: 'Analytics and charts',
+      gradient: 'bg-gradient-to-r from-red-500 via-orange-500 to-amber-500',
+      glow: 'shadow-lg shadow-red-500/50'
+    },
+    {
       id: 'records' as const,
       label: 'Student Attendance',
       icon: ClipboardList,
@@ -73,6 +81,46 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       description: 'Track mentor attendance',
       gradient: 'bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500',
       glow: 'shadow-lg shadow-cyan-500/50'
+    },
+    {
+      id: 'table' as const,
+      label: 'Student Data',
+      icon: Database,
+      description: 'View and filter student data',
+      gradient: 'bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500',
+      glow: 'shadow-lg shadow-violet-500/50'
+    },
+    {
+      id: 'feedback' as const,
+      label: 'Mentiby Feedback',
+      icon: MessageSquare,
+      description: 'Students Feedback on Mentiby',
+      gradient: 'bg-gradient-to-r from-rose-500 via-pink-500 to-fuchsia-500',
+      glow: 'shadow-lg shadow-rose-500/50'
+    },
+    {
+      id: 'xp' as const,
+      label: 'XP Leaderboard',
+      icon: Trophy,
+      description: 'Student XP rankings',
+      gradient: 'bg-gradient-to-r from-amber-500 via-yellow-500 to-lime-500',
+      glow: 'shadow-lg shadow-amber-500/50'
+    },
+    {
+      id: 'mbycallingagent' as const,
+      label: 'Mentiby Calling Agent',
+      icon: MessageSquare,
+      description: 'Calling agent for Mentiby',
+      gradient: 'bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500',
+      glow: 'shadow-lg shadow-sky-500/50'
+    },
+    {
+      id: 'attendance' as const,
+      label: 'Attendance Upload',
+      icon: Upload,
+      description: 'Upload attendance CSV files',
+      gradient: 'bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500',
+      glow: 'shadow-lg shadow-emerald-500/50'
     }
   ]
 
