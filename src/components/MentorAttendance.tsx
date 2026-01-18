@@ -227,7 +227,7 @@ export default function MentorAttendance() {
         {/* Action Buttons */}
         <div className="flex items-center space-x-3">
           <button
-            onClick={fetchMonthlyAttendance}
+            onClick={() => fetchMonthlyAttendance()}
             disabled={isLoadingMonthly}
             className="px-4 py-2 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-red-500/20 hover:from-amber-500/30 hover:via-orange-500/30 hover:to-red-500/30 text-foreground rounded-xl font-medium transition-all duration-300 flex items-center space-x-2 hover:scale-105 border border-amber-500/30"
           >
