@@ -54,7 +54,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json()
-    const { tableName, id, field, value } = body
+    const { tableName, id, field, value, oldValue, triggerUpdateHandler = false } = body
 
     if (!tableName || !id || !field) {
       return NextResponse.json(
@@ -74,6 +74,17 @@ export async function PATCH(request: Request) {
       }
     )
 
+    // If updating date or time, first fetch the old values
+    let oldSession: any = null
+    if ((field === 'date' || field === 'time') && triggerUpdateHandler) {
+      const { data: sessionData } = await supabaseB
+        .from(tableName)
+        .select('*')
+        .eq('id', id)
+        .single()
+      oldSession = sessionData
+    }
+
     const { data, error } = await supabaseB
       .from(tableName)
       .update({ [field]: value })
@@ -86,6 +97,36 @@ export async function PATCH(request: Request) {
         { error: error.message },
         { status: 500 }
       )
+    }
+
+    // If date or time changed and handler should be triggered, call the session update handler
+    if (oldSession && triggerUpdateHandler && (field === 'date' || field === 'time')) {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        
+        // Call the session update handler asynchronously
+        fetch(`${baseUrl}/api/cohort/session-update-handler`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tableName,
+            sessionId: id,
+            oldDate: oldSession.date,
+            oldTime: oldSession.time,
+            newDate: field === 'date' ? value : oldSession.date,
+            newTime: field === 'time' ? value : oldSession.time
+          })
+        }).then(async (res) => {
+          if (res.ok) {
+            const result = await res.json()
+            console.log('Session update handler result:', result)
+          }
+        }).catch(err => {
+          console.error('Failed to call session update handler:', err)
+        })
+      } catch (handlerError) {
+        console.error('Error triggering session update handler:', handlerError)
+      }
     }
 
     return NextResponse.json({ success: true, data })

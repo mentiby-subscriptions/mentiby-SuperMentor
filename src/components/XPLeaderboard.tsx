@@ -337,7 +337,7 @@ export default function XPLeaderboard() {
               <span>Updated: {lastUpdated}</span>
             </div>
           )}
-          
+
           {/* Progress Display */}
           {updateProgress.total > 0 && updateProgress.current < updateProgress.total && !refreshing && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -403,7 +403,7 @@ export default function XPLeaderboard() {
                 ? updateProgress.total > 0 
                   ? `Updating... (${updateProgress.current}/${updateProgress.total})`
                   : 'Updating...'
-                : 'Refresh XP'
+                  : 'Refresh XP'
               }
             </button>
           </div>

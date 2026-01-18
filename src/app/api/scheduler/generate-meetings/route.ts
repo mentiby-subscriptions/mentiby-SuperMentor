@@ -375,6 +375,12 @@ export async function POST(request: Request) {
               continue
             }
             
+            // Skip contest sessions - only create links for live sessions
+            if (session.session_type && session.session_type.toLowerCase() === 'contest') {
+              console.log(`Skipping session ${session.id}: contest sessions don't need meeting links`)
+              continue
+            }
+            
             // Skip if already has a valid link (not null, not empty, not just whitespace)
             const existingLink = session.teams_meeting_link
             if (existingLink && existingLink.trim() !== '' && existingLink !== 'null') {

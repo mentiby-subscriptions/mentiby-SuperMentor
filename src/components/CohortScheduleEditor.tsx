@@ -954,7 +954,8 @@ export default function CohortScheduleEditor() {
             tableName,
             id: selectedSessionId,
             field: 'date',
-            value: effectiveDate
+            value: effectiveDate,
+            triggerUpdateHandler: true // Trigger meeting regeneration & notifications
           })
         })
 
@@ -984,12 +985,13 @@ export default function CohortScheduleEditor() {
             tableName,
             id: selectedSessionId,
             field: 'time',
-            value: effectiveTime
+            value: effectiveTime,
+            triggerUpdateHandler: !dateChanged // Only trigger if date wasn't already triggering
           })
         })
       }
 
-      showToast(`Session ${type === 'postpone' ? 'postponed' : 'preponed'} successfully!`, 'success')
+      showToast(`Session ${type === 'postpone' ? 'postponed' : 'preponed'} successfully! Meeting link will be regenerated.`, 'success')
       
       // Reset selections
       setSelectedWeekNumber('')

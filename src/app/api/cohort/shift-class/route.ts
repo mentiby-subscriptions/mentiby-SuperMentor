@@ -223,6 +223,47 @@ export async function POST(request: Request) {
       console.log('=== Week/Session recalculation complete ===')
     }
 
+    // Step 9: Trigger session update handler for affected sessions (meeting regeneration & notifications)
+    console.log('\n=== Triggering session update handlers ===')
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    
+    // Get original session data for comparison
+    const originalSessionMap = new Map(allSessions.map(s => [s.id, s]))
+    
+    // Call update handler for each affected session that has meeting link or email_sent
+    for (const update of updates) {
+      const originalSession = originalSessionMap.get(update.id)
+      if (originalSession && (originalSession.teams_meeting_link || originalSession.email_sent)) {
+        try {
+          // Fire and forget - don't wait for handler to complete
+          fetch(`${baseUrl}/api/cohort/session-update-handler`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tableName,
+              sessionId: update.id,
+              oldDate: originalSession.date,
+              oldTime: originalSession.time,
+              newDate: update.date,
+              newTime: originalSession.time // Time doesn't change in bulk shift
+            })
+          }).then(async (res) => {
+            if (res.ok) {
+              console.log(`  Handler triggered for session ${update.id}`)
+            }
+          }).catch(err => {
+            console.log(`  Handler failed for session ${update.id}:`, err.message)
+          })
+          
+          // Small delay to avoid overwhelming the API
+          await new Promise(resolve => setTimeout(resolve, 100))
+        } catch (handlerError) {
+          console.log(`  Could not trigger handler for session ${update.id}`)
+        }
+      }
+    }
+    console.log('=== Session update handlers triggered ===')
+
     console.log(`=== SHIFT CLASS COMPLETED ===\n`)
 
     if (errors.length > 0) {
@@ -236,7 +277,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully shifted class and rescheduled ${updates.length - 1} subsequent classes`,
+      message: `Successfully shifted class and rescheduled ${updates.length - 1} subsequent classes. Meeting links will be regenerated for affected sessions.`,
       updatedCount: updates.length,
       updates: updates.map(u => ({ id: u.id, date: u.date, day: u.day }))
     })
