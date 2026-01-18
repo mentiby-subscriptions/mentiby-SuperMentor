@@ -183,14 +183,144 @@ export async function POST() {
   }
 }
 
-// GET endpoint to fetch current attendance data
-export async function GET() {
+// GET endpoint to fetch current attendance data or monthly breakdown
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const year = searchParams.get('year')
+    const monthly = searchParams.get('monthly')
+
     const supabaseMain = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
+    const supabaseB = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL_B!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY_B!
+    )
+
+    // If monthly breakdown requested
+    if (monthly === 'true' && year) {
+      console.log(`=== MONTHLY ATTENDANCE FOR YEAR ${year} ===`)
+
+      // Get all mentors
+      const { data: mentors, error: mentorsError } = await supabaseB
+        .from('Mentor Details')
+        .select('mentor_id, Name, "Email address"')
+      
+      if (mentorsError || !mentors) {
+        return NextResponse.json({ error: 'Failed to fetch mentors' }, { status: 500 })
+      }
+
+      // Get all cohort tables
+      const { data: tables, error: tablesError } = await supabaseB.rpc('get_schedule_tables')
+      
+      if (tablesError || !tables) {
+        return NextResponse.json({ error: 'Failed to get schedule tables' }, { status: 500 })
+      }
+
+      const cohortTables = tables.map((row: any) => row.table_name)
+
+      // Process each mentor's monthly data
+      const monthlyData: any[] = []
+      const allMonths = new Set<string>()
+
+      for (const mentor of mentors) {
+        const mentorId = mentor.mentor_id
+        const mentorName = mentor.Name || 'Unknown'
+
+        // Monthly breakdown: { 'Jan': { self: 2, special: 1 }, 'Feb': { self: 3, special: 0 } }
+        const monthBreakdown: Record<string, { self: number; special: number }> = {}
+
+        for (const tableName of cohortTables) {
+          try {
+            // Get all completed classes for this mentor in the given year
+            const { data: classes, error: classesError } = await supabaseB
+              .from(tableName)
+              .select('id, date, mentor_id, swapped_mentor_id, session_recording')
+              .eq('mentor_id', mentorId)
+              .not('session_recording', 'is', null)
+              .neq('session_recording', '')
+              .gte('date', `${year}-01-01`)
+              .lte('date', `${year}-12-31`)
+
+            if (!classesError && classes) {
+              for (const cls of classes) {
+                if (!cls.date) continue
+                
+                const date = new Date(cls.date + 'T12:00:00')
+                const monthKey = date.toLocaleString('en-US', { month: 'short' })
+                allMonths.add(monthKey)
+
+                if (!monthBreakdown[monthKey]) {
+                  monthBreakdown[monthKey] = { self: 0, special: 0 }
+                }
+
+                // If no swap, mentor was present (self)
+                if (cls.swapped_mentor_id === null || cls.swapped_mentor_id === undefined) {
+                  monthBreakdown[monthKey].self++
+                }
+                // If swapped, this mentor was absent for this class (don't count)
+              }
+            }
+
+            // Check for special classes (where this mentor covered for someone else)
+            const { data: swappedClasses, error: swappedError } = await supabaseB
+              .from(tableName)
+              .select('id, date, mentor_id, swapped_mentor_id, session_recording')
+              .eq('swapped_mentor_id', mentorId)
+              .not('session_recording', 'is', null)
+              .neq('session_recording', '')
+              .gte('date', `${year}-01-01`)
+              .lte('date', `${year}-12-31`)
+
+            if (!swappedError && swappedClasses) {
+              for (const cls of swappedClasses) {
+                if (!cls.date) continue
+                
+                const date = new Date(cls.date + 'T12:00:00')
+                const monthKey = date.toLocaleString('en-US', { month: 'short' })
+                allMonths.add(monthKey)
+
+                if (!monthBreakdown[monthKey]) {
+                  monthBreakdown[monthKey] = { self: 0, special: 0 }
+                }
+
+                monthBreakdown[monthKey].special++
+              }
+            }
+
+          } catch (err: any) {
+            console.log(`Error processing ${tableName}:`, err.message)
+          }
+        }
+
+        // Only add mentors with data
+        if (Object.keys(monthBreakdown).length > 0) {
+          monthlyData.push({
+            mentor_id: mentorId,
+            name: mentorName,
+            months: monthBreakdown
+          })
+        }
+      }
+
+      // Sort months chronologically
+      const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const sortedMonths = Array.from(allMonths).sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b))
+
+      console.log(`Found data for ${monthlyData.length} mentors across ${sortedMonths.length} months`)
+
+      return NextResponse.json({
+        success: true,
+        year,
+        months: sortedMonths,
+        data: monthlyData
+      })
+    }
+
+    // Default: fetch overall attendance data
     const { data, error } = await supabaseMain
       .from('mentor_attendance')
       .select('*')

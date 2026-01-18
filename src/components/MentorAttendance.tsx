@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { UserCheck, RefreshCw, Users, Award, AlertTriangle, TrendingUp, Clock } from 'lucide-react'
+import { UserCheck, RefreshCw, Users, Award, AlertTriangle, TrendingUp, Clock, Calendar, ArrowLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface MentorAttendanceData {
@@ -16,12 +16,25 @@ interface MentorAttendanceData {
   updated_at?: string
 }
 
+interface MonthlyMentorData {
+  mentor_id: number
+  name: string
+  months: Record<string, { self: number; special: number }>
+}
+
 export default function MentorAttendance() {
   const [attendanceData, setAttendanceData] = useState<MentorAttendanceData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isCalculating, setIsCalculating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingStep, setLoadingStep] = useState(0)
+  
+  // Monthly view state
+  const [showMonthlyView, setShowMonthlyView] = useState(false)
+  const [monthlyData, setMonthlyData] = useState<MonthlyMentorData[]>([])
+  const [availableMonths, setAvailableMonths] = useState<string[]>([])
+  const [isLoadingMonthly, setIsLoadingMonthly] = useState(false)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
 
   const loadingSteps = [
     'Fetching mentor details...',
@@ -82,6 +95,30 @@ export default function MentorAttendance() {
     } finally {
       setIsCalculating(false)
       setIsLoading(false)
+    }
+  }
+
+  // Fetch monthly attendance data
+  const fetchMonthlyAttendance = async (yearOverride?: number) => {
+    const yearToFetch = yearOverride ?? selectedYear
+    setIsLoadingMonthly(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/mentor-attendance?monthly=true&year=${yearToFetch}`)
+      const result = await response.json()
+
+      if (result.success) {
+        setMonthlyData(result.data)
+        setAvailableMonths(result.months)
+        setShowMonthlyView(true)
+      } else {
+        throw new Error(result.error || 'Failed to fetch monthly data')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+    } finally {
+      setIsLoadingMonthly(false)
     }
   }
 
@@ -187,15 +224,26 @@ export default function MentorAttendance() {
           </div>
         </div>
 
-        {/* Recalculate Button */}
-        <button
-          onClick={calculateAttendance}
-          disabled={isCalculating}
-          className="px-4 py-2 bg-gradient-to-r from-purple-500/20 via-blue-500/20 to-cyan-500/20 hover:from-purple-500/30 hover:via-blue-500/30 hover:to-cyan-500/30 text-foreground rounded-xl font-medium transition-all duration-300 flex items-center space-x-2 hover:scale-105 border border-purple-500/30"
-        >
-          <RefreshCw className={cn("w-4 h-4", isCalculating && "animate-spin")} />
-          <span>Recalculate</span>
-        </button>
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={fetchMonthlyAttendance}
+            disabled={isLoadingMonthly}
+            className="px-4 py-2 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-red-500/20 hover:from-amber-500/30 hover:via-orange-500/30 hover:to-red-500/30 text-foreground rounded-xl font-medium transition-all duration-300 flex items-center space-x-2 hover:scale-105 border border-amber-500/30"
+          >
+            <Calendar className={cn("w-4 h-4", isLoadingMonthly && "animate-spin")} />
+            <span>Check Monthly Attendance</span>
+          </button>
+          
+          <button
+            onClick={calculateAttendance}
+            disabled={isCalculating}
+            className="px-4 py-2 bg-gradient-to-r from-purple-500/20 via-blue-500/20 to-cyan-500/20 hover:from-purple-500/30 hover:via-blue-500/30 hover:to-cyan-500/30 text-foreground rounded-xl font-medium transition-all duration-300 flex items-center space-x-2 hover:scale-105 border border-purple-500/30"
+          >
+            <RefreshCw className={cn("w-4 h-4", isCalculating && "animate-spin")} />
+            <span>Recalculate</span>
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -365,6 +413,149 @@ export default function MentorAttendance() {
           <span>&lt;50% Critical</span>
         </div>
       </div>
+
+      {/* Monthly View Modal */}
+      {showMonthlyView && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border/50 rounded-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-border/50 flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={() => setShowMonthlyView(false)}
+                  className="p-2 hover:bg-muted/50 rounded-lg transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5 text-muted-foreground" />
+                </button>
+                <div>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-amber-400 via-orange-400 to-red-400 bg-clip-text text-transparent">
+                    Monthly Attendance - {selectedYear}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {monthlyData.length} mentors • {availableMonths.length} months with data
+                  </p>
+                </div>
+              </div>
+              
+              {/* Legend */}
+              <div className="flex items-center space-x-4 text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 rounded-full bg-green-400" />
+                  <span className="text-muted-foreground">Self Classes</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 rounded-full bg-cyan-400" />
+                  <span className="text-muted-foreground">Special Classes</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-auto p-6">
+              {isLoadingMonthly ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center space-y-4">
+                    <div className="w-16 h-16 rounded-full border-4 border-amber-500/20 border-t-amber-500 animate-spin mx-auto" />
+                    <p className="text-muted-foreground">Loading monthly data...</p>
+                  </div>
+                </div>
+              ) : monthlyData.length === 0 ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center space-y-4">
+                    <Calendar className="w-16 h-16 text-muted-foreground mx-auto" />
+                    <p className="text-muted-foreground">No attendance data found for {selectedYear}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {monthlyData.map((mentor) => (
+                    <div key={mentor.mentor_id} className="bg-muted/20 rounded-xl border border-border/30 overflow-hidden">
+                      {/* Mentor Header */}
+                      <div className="px-4 py-3 bg-gradient-to-r from-purple-500/10 via-blue-500/10 to-cyan-500/10 border-b border-border/30">
+                        <h3 className="font-bold text-lg text-foreground flex items-center space-x-2">
+                          <span className="text-purple-400 font-mono">#{mentor.mentor_id}</span>
+                          <span>{mentor.name}</span>
+                        </h3>
+                      </div>
+                      
+                      {/* Monthly Table */}
+                      <div className="p-4 overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr>
+                              {availableMonths.map((month) => (
+                                <th key={month} className="px-4 py-2 text-center text-sm font-semibold text-muted-foreground whitespace-nowrap">
+                                  {month}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              {availableMonths.map((month) => {
+                                const monthData = mentor.months[month]
+                                const selfCount = monthData?.self || 0
+                                const specialCount = monthData?.special || 0
+                                const hasData = selfCount > 0 || specialCount > 0
+
+                                return (
+                                  <td key={month} className="px-4 py-3 text-center">
+                                    {hasData ? (
+                                      <div className="flex items-center justify-center space-x-1">
+                                        <span className="text-green-400 font-bold text-lg">{selfCount}</span>
+                                        {specialCount > 0 && (
+                                          <>
+                                            <span className="text-muted-foreground">+</span>
+                                            <span className="text-cyan-400 font-bold text-lg">{specialCount}</span>
+                                          </>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <span className="text-muted-foreground/50">-</span>
+                                    )}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-border/50 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <span>Year:</span>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => {
+                    const newYear = parseInt(e.target.value)
+                    setSelectedYear(newYear)
+                    // Re-fetch with the new year directly
+                    fetchMonthlyAttendance(newYear)
+                  }}
+                  className="px-3 py-1 bg-muted/50 border border-border/50 rounded-lg text-foreground focus:outline-none"
+                >
+                  {[2024, 2025, 2026, 2027].map((yr) => (
+                    <option key={yr} value={yr}>{yr}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <button
+                onClick={() => setShowMonthlyView(false)}
+                className="px-6 py-2 bg-muted hover:bg-muted/80 text-foreground rounded-xl font-medium transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
