@@ -16,6 +16,7 @@ import MentibyCallingAgent from '@/components/MentibyCallingAgent'
 import CohortInitiator from '@/components/CohortInitiator'
 import CohortScheduleEditor from '@/components/CohortScheduleEditor'
 import MentorAttendance from '@/components/MentorAttendance'
+import StudentOnboarding from '@/components/StudentOnboarding'
 
 // Temporary local type definition for FeedbackData
 type FeedbackData = {
@@ -28,7 +29,7 @@ type FeedbackData = {
 }
 
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance'>('cohort-initiator')
+  const [activeTab, setActiveTab] = useState<'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding'>('cohort-initiator')
   const [onboardingData, setOnboardingData] = useState<OnboardingData[]>([])
   const [feedbackData, setFeedbackData] = useState<FeedbackData[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -86,7 +87,7 @@ function AdminPanel() {
     }
   }
 
-  const handleTabChange = (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance') => {
+  const handleTabChange = (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding') => {
     setActiveTab(tab)
     setIsMobileMenuOpen(false) // Close mobile menu when tab changes
   }
@@ -141,6 +142,8 @@ function AdminPanel() {
         return <CohortScheduleEditor />
       case 'mentor-attendance':
         return <MentorAttendance />
+      case 'student-onboarding':
+        return <StudentOnboarding />
       default:
         return <DataTable data={onboardingData} isLoading={isLoading} onDataUpdate={fetchData} />
     }

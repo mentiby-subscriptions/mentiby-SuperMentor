@@ -1,13 +1,13 @@
 'use client'
 
-import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket, Edit3, UserCheck } from 'lucide-react'
+import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket, Edit3, UserCheck, GraduationCap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { useState, useEffect } from 'react'
 
 interface SidebarProps {
-  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance'
-  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance') => void
+  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding'
+  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding') => void
 }
 
 export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
@@ -57,6 +57,14 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       description: 'Edit existing cohort schedules',
       gradient: 'bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500',
       glow: 'shadow-lg shadow-blue-500/50'
+    },
+    {
+      id: 'student-onboarding' as const,
+      label: 'Start Student Onboarding',
+      icon: GraduationCap,
+      description: 'Configure enrollment batch',
+      gradient: 'bg-gradient-to-r from-violet-500 via-purple-500 to-pink-500',
+      glow: 'shadow-lg shadow-violet-500/50'
     },
     {
       id: 'charts' as const,
