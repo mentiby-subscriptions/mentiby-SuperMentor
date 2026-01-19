@@ -329,6 +329,8 @@ export async function POST(request: Request) {
 
             let studentEmailsSent = 0
             let studentWhatsAppSent = 0
+            let mentorEmailSentSuccess = false
+            let mentorWhatsAppSentSuccess = false
 
             for (const student of students) {
               const studentName = student['Full Name'] || 'Student'
@@ -416,6 +418,7 @@ export async function POST(request: Request) {
 
               if (mentorSent) {
                 totalMentorEmailsSent++
+                mentorEmailSentSuccess = true
                 console.log(`✅ Mentor email sent successfully to ${mentorEmail}`)
               } else {
                 console.log(`❌ Failed to send mentor email to ${mentorEmail}`)
@@ -448,6 +451,7 @@ export async function POST(request: Request) {
               
               if (mentorWaSent) {
                 totalMentorWhatsAppSent++
+                mentorWhatsAppSentSuccess = true
                 console.log(`✅ Mentor WhatsApp sent successfully to ${mentorPhone}`)
               } else {
                 console.log(`❌ Failed to send mentor WhatsApp to ${mentorPhone}`)
@@ -462,13 +466,13 @@ export async function POST(request: Request) {
             try {
               const updateData: Record<string, boolean> = {}
               
-              // Mark email_sent if at least one email was sent
-              if (studentEmailsSent > 0 || mentorEmail) {
+              // Mark email_sent if at least one email was actually sent successfully
+              if (studentEmailsSent > 0 || mentorEmailSentSuccess) {
                 updateData.email_sent = true
               }
               
-              // Mark whatsapp_sent if at least one WhatsApp was sent
-              if (studentWhatsAppSent > 0 || mentorPhone) {
+              // Mark whatsapp_sent if at least one WhatsApp was actually sent successfully
+              if (studentWhatsAppSent > 0 || mentorWhatsAppSentSuccess) {
                 updateData.whatsapp_sent = true
               }
               
