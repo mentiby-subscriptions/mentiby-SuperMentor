@@ -328,14 +328,24 @@ async function createTeamsMeeting(
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ recordAutomatically: true })
+        body: JSON.stringify({
+          recordAutomatically: true,
+          lobbyBypassSettings: {
+            scope: 'everyone',
+            isDialInBypassEnabled: true
+          },
+          autoAdmittedUsers: 'everyone',
+          // Attendees join muted with camera off (organizer is exempt)
+          allowAttendeeToEnableMic: false,
+          allowAttendeeToEnableCamera: false
+        })
       })
       
       if (patchResponse.ok) {
-        console.log(`  Enabled auto-recording for meeting`)
+        console.log(`  Configured meeting: auto-recording, lobby bypass, attendees muted`)
       }
     } catch (patchError) {
-      console.log(`  Warning: Could not enable auto-recording`)
+      console.log(`  Warning: Could not configure meeting settings`)
     }
   }
 

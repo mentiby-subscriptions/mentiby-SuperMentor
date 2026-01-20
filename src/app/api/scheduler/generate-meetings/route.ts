@@ -126,14 +126,22 @@ async function createTeamsMeetingWithChat(
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          recordAutomatically: true
+          recordAutomatically: true,
+          lobbyBypassSettings: {
+            scope: 'everyone',
+            isDialInBypassEnabled: true
+          },
+          autoAdmittedUsers: 'everyone',
+          // Attendees join muted with camera off (organizer is exempt)
+          allowAttendeeToEnableMic: false,
+          allowAttendeeToEnableCamera: false
         })
       })
       
       if (patchResponse.ok) {
-        console.log(`  Enabled auto-recording for meeting`)
+        console.log(`  Configured meeting: auto-recording, lobby bypass, attendees muted`)
       } else {
-        console.log(`  Warning: Could not enable auto-recording: ${await patchResponse.text()}`)
+        console.log(`  Warning: Could not configure meeting settings: ${await patchResponse.text()}`)
       }
     } catch (patchError) {
       console.log(`  Warning: Failed to patch meeting for auto-recording:`, patchError)
