@@ -525,6 +525,7 @@ async function sendUpdateNotifications(params: {
   oldMentorId?: number | null
   newMentorId?: number | null
   newMeetingLink?: string | null
+  changedField?: string
 }): Promise<{ 
   studentsSent: number
   mentorSent: boolean 
@@ -532,10 +533,12 @@ async function sendUpdateNotifications(params: {
   whatsappSent: { students: number; mentor: boolean; supermentors: number }
   oldMentorNotified: boolean
   newMentorNotified: boolean
+  originalMentorNotified: boolean
+  swappedMentorNotified: boolean
 }> {
   const { 
     tableName, session, oldDate, oldTime, newDate, newTime, supabaseMain, supabaseB,
-    updateType = 'reschedule', oldMentorId, newMentorId, newMeetingLink
+    updateType = 'reschedule', oldMentorId, newMentorId, newMeetingLink, changedField
   } = params
   
   const result = { 
@@ -544,8 +547,13 @@ async function sendUpdateNotifications(params: {
     supermentorsSent: 0,
     whatsappSent: { students: 0, mentor: false, supermentors: 0 },
     oldMentorNotified: false,
-    newMentorNotified: false
+    newMentorNotified: false,
+    originalMentorNotified: false,
+    swappedMentorNotified: false
   }
+  
+  // Check if this is a swap scenario (swapped_mentor_id changed, mentor_id unchanged)
+  const isSwapChange = changedField === 'swapped_mentor_id'
 
   try {
     const cohortInfo = parseCohortFromTableName(tableName)
@@ -583,9 +591,45 @@ async function sendUpdateNotifications(params: {
       console.log(`  Mentor ${effectiveMentorId}: ${data?.['Name'] || 'NOT FOUND'} (${data?.['Email address'] || 'NO EMAIL'})`)
     }
 
-    // Get old mentor info (for mentor change notifications)
+    // Get original mentor (mentor_id) - needed for swap notifications
+    let originalMentor = null
+    if (session.mentor_id && isSwapChange) {
+      const { data } = await supabaseB
+        .from('Mentor Details')
+        .select('mentor_id, "Name", "Email address", "Mobile number"')
+        .eq('mentor_id', session.mentor_id)
+        .single()
+      originalMentor = data
+      console.log(`  Original Mentor (for swap): ${data?.['Name'] || 'NOT FOUND'}`)
+    }
+
+    // Get swapped mentor (the new swapped_mentor_id value)
+    let swappedMentor = null
+    if (isSwapChange && newMentorId) {
+      const { data } = await supabaseB
+        .from('Mentor Details')
+        .select('mentor_id, "Name", "Email address", "Mobile number"')
+        .eq('mentor_id', newMentorId)
+        .single()
+      swappedMentor = data
+      console.log(`  Swapped Mentor: ${data?.['Name'] || 'NOT FOUND'}`)
+    }
+
+    // Get old swapped mentor (if swap is being changed/removed)
+    let oldSwappedMentor = null
+    if (isSwapChange && oldMentorId) {
+      const { data } = await supabaseB
+        .from('Mentor Details')
+        .select('mentor_id, "Name", "Email address", "Mobile number"')
+        .eq('mentor_id', oldMentorId)
+        .single()
+      oldSwappedMentor = data
+      console.log(`  Old Swapped Mentor: ${data?.['Name'] || 'NOT FOUND'}`)
+    }
+
+    // Get old mentor info (for mentor_id change notifications - not swap)
     let oldMentor = null
-    if (oldMentorId && oldMentorId !== effectiveMentorId) {
+    if (oldMentorId && oldMentorId !== effectiveMentorId && !isSwapChange) {
       const { data } = await supabaseB
         .from('Mentor Details')
         .select('mentor_id, "Name", "Email address", "Mobile number"')
@@ -594,9 +638,9 @@ async function sendUpdateNotifications(params: {
       oldMentor = data
     }
 
-    // Get new mentor info (for mentor change notifications)
+    // Get new mentor info (for mentor_id change notifications - not swap)
     let newMentor = null
-    if (newMentorId && newMentorId !== (oldMentorId || session.mentor_id)) {
+    if (newMentorId && newMentorId !== (oldMentorId || session.mentor_id) && !isSwapChange) {
       const { data } = await supabaseB
         .from('Mentor Details')
         .select('mentor_id, "Name", "Email address", "Mobile number"')
@@ -685,8 +729,161 @@ async function sendUpdateNotifications(params: {
       }
     }
 
-    // 2. Send to current mentor
-    if (currentMentor && currentMentor['Email address']) {
+    // 2. Handle SWAP scenario notifications
+    if (isSwapChange) {
+      console.log('  Handling swap notifications...')
+      
+      // 2a. Notify original mentor (mentor_id) about the swap
+      if (originalMentor && originalMentor['Email address']) {
+        const swapStatus = newMentorId 
+          ? `Your class is being covered by ${swappedMentor?.['Name'] || 'another mentor'}`
+          : 'You are back on duty for this class'
+        
+        try {
+          const success = await sendEmailWithDelay({
+            to: originalMentor['Email address'],
+            subject: `🔄 Class Coverage Update - ${cohortInfo.type} ${cohortInfo.number}`,
+            html: generateUpdateEmailHTML({
+              recipientName: originalMentor['Name'] || 'Mentor',
+              recipientType: 'mentor',
+              cohortType: cohortInfo.type,
+              cohortNumber: cohortInfo.number,
+              oldDateFormatted: newDateFormatted,
+              oldTime: newTime,
+              newDateFormatted,
+              newTime,
+              subjectName,
+              hasOldMeetingLink: false,
+              newMeetingLink,
+              updateType: 'details_updated',
+              additionalInfo: swapStatus
+            })
+          })
+          result.originalMentorNotified = success
+          console.log(`  Original mentor (${originalMentor['Name']}) notified: ${success}`)
+        } catch (error) {
+          console.error('Failed to send email to original mentor:', error)
+        }
+
+        const originalMentorPhone = formatPhoneForWhatsApp(originalMentor['Mobile number'])
+        if (originalMentorPhone) {
+          try {
+            await sendWhatsAppWithDelay({
+              to: originalMentorPhone,
+              recipientName: originalMentor['Name'] || 'Mentor',
+              cohortType: cohortInfo.type,
+              cohortNumber: cohortInfo.number,
+              oldDate: newDateFormatted,
+              oldTime: newTime,
+              newDate: newDateFormatted,
+              newTime,
+              subjectName,
+              meetingLink: newMeetingLink
+            })
+          } catch (error) {
+            console.error('Failed to send WhatsApp to original mentor:', error)
+          }
+        }
+      }
+
+      // 2b. Notify new swapped mentor (they are covering the class)
+      if (swappedMentor && swappedMentor['Email address']) {
+        try {
+          const success = await sendEmailWithDelay({
+            to: swappedMentor['Email address'],
+            subject: `📥 Class Coverage Assigned - ${cohortInfo.type} ${cohortInfo.number}`,
+            html: generateUpdateEmailHTML({
+              recipientName: swappedMentor['Name'] || 'Mentor',
+              recipientType: 'mentor',
+              cohortType: cohortInfo.type,
+              cohortNumber: cohortInfo.number,
+              oldDateFormatted: newDateFormatted,
+              oldTime: newTime,
+              newDateFormatted,
+              newTime,
+              subjectName,
+              hasOldMeetingLink: false,
+              newMeetingLink,
+              updateType: 'mentor_assigned',
+              additionalInfo: `You are covering this class for ${originalMentor?.['Name'] || 'another mentor'}.`
+            })
+          })
+          result.swappedMentorNotified = success
+          console.log(`  Swapped mentor (${swappedMentor['Name']}) notified: ${success}`)
+        } catch (error) {
+          console.error('Failed to send email to swapped mentor:', error)
+        }
+
+        const swappedMentorPhone = formatPhoneForWhatsApp(swappedMentor['Mobile number'])
+        if (swappedMentorPhone) {
+          try {
+            await sendWhatsAppWithDelay({
+              to: swappedMentorPhone,
+              recipientName: swappedMentor['Name'] || 'Mentor',
+              cohortType: cohortInfo.type,
+              cohortNumber: cohortInfo.number,
+              oldDate: newDateFormatted,
+              oldTime: newTime,
+              newDate: newDateFormatted,
+              newTime,
+              subjectName,
+              meetingLink: newMeetingLink
+            })
+          } catch (error) {
+            console.error('Failed to send WhatsApp to swapped mentor:', error)
+          }
+        }
+      }
+
+      // 2c. Notify old swapped mentor (coverage removed)
+      if (oldSwappedMentor && oldSwappedMentor['Email address'] && oldSwappedMentor.mentor_id !== swappedMentor?.mentor_id) {
+        try {
+          const success = await sendEmailWithDelay({
+            to: oldSwappedMentor['Email address'],
+            subject: `📤 Class Coverage Removed - ${cohortInfo.type} ${cohortInfo.number}`,
+            html: generateUpdateEmailHTML({
+              recipientName: oldSwappedMentor['Name'] || 'Mentor',
+              recipientType: 'mentor',
+              cohortType: cohortInfo.type,
+              cohortNumber: cohortInfo.number,
+              oldDateFormatted: newDateFormatted,
+              oldTime: newTime,
+              newDateFormatted,
+              newTime,
+              subjectName,
+              hasOldMeetingLink: false,
+              updateType: 'mentor_removed',
+              additionalInfo: 'Your class coverage has been removed.'
+            })
+          })
+          console.log(`  Old swapped mentor (${oldSwappedMentor['Name']}) notified: ${success}`)
+        } catch (error) {
+          console.error('Failed to send email to old swapped mentor:', error)
+        }
+
+        const oldSwappedMentorPhone = formatPhoneForWhatsApp(oldSwappedMentor['Mobile number'])
+        if (oldSwappedMentorPhone) {
+          try {
+            await sendWhatsAppWithDelay({
+              to: oldSwappedMentorPhone,
+              recipientName: oldSwappedMentor['Name'] || 'Mentor',
+              cohortType: cohortInfo.type,
+              cohortNumber: cohortInfo.number,
+              oldDate: newDateFormatted,
+              oldTime: newTime,
+              newDate: newDateFormatted,
+              newTime,
+              subjectName,
+              meetingLink: null
+            })
+          } catch (error) {
+            console.error('Failed to send WhatsApp to old swapped mentor:', error)
+          }
+        }
+      }
+    } 
+    // 2. Send to current mentor (non-swap scenarios)
+    else if (currentMentor && currentMentor['Email address']) {
       try {
         const success = await sendEmailWithDelay({
           to: currentMentor['Email address'],
@@ -735,7 +932,7 @@ async function sendUpdateNotifications(params: {
       }
     }
 
-    // 3. Send to old mentor (class removed notification)
+    // 3. Send to old mentor (class removed notification) - for mentor_id changes only
     if (oldMentor && oldMentor['Email address']) {
       try {
         const success = await sendEmailWithDelay({
@@ -966,7 +1163,9 @@ export async function POST(request: Request) {
         supermentorsSent: 0,
         whatsappSent: { students: 0, mentor: false, supermentors: 0 },
         oldMentorNotified: false,
-        newMentorNotified: false
+        newMentorNotified: false,
+        originalMentorNotified: false,
+        swappedMentorNotified: false
       }
     }
 
@@ -1075,9 +1274,17 @@ export async function POST(request: Request) {
       updateType = 'details_updated'
     }
 
-    // Send notifications if email was already sent
-    if (session.email_sent === true || session.whatsapp_sent === true) {
-      console.log('Notifications were already sent - sending update notifications...')
+    // For swap scenarios, ALWAYS notify mentors (they need to know about coverage)
+    // For other changes, only notify if students were already notified
+    const isSwapChange = changedField === 'swapped_mentor_id'
+    const shouldSendNotifications = isSwapChange || session.email_sent === true || session.whatsapp_sent === true
+
+    if (shouldSendNotifications) {
+      if (isSwapChange) {
+        console.log('Swap detected - sending mentor coverage notifications...')
+      } else {
+        console.log('Notifications were already sent - sending update notifications...')
+      }
       
       results.notificationsSent = await sendUpdateNotifications({
         tableName,
@@ -1091,7 +1298,8 @@ export async function POST(request: Request) {
         updateType,
         oldMentorId: effectiveOldMentorId,
         newMentorId: effectiveNewMentorId,
-        newMeetingLink: results.newMeetingLink
+        newMeetingLink: results.newMeetingLink,
+        changedField
       })
       
       console.log(`Notifications sent:`)
@@ -1100,7 +1308,10 @@ export async function POST(request: Request) {
       console.log(`  - Mentor: ${results.notificationsSent.mentorSent}`)
       console.log(`  - Supermentors (email): ${results.notificationsSent.supermentorsSent}`)
       console.log(`  - Supermentors (WhatsApp): ${results.notificationsSent.whatsappSent.supermentors}`)
-      if (mentorChanged) {
+      if (changedField === 'swapped_mentor_id') {
+        console.log(`  - Original mentor notified: ${results.notificationsSent.originalMentorNotified}`)
+        console.log(`  - Swapped mentor notified: ${results.notificationsSent.swappedMentorNotified}`)
+      } else if (mentorChanged) {
         console.log(`  - Old mentor notified: ${results.notificationsSent.oldMentorNotified}`)
         console.log(`  - New mentor notified: ${results.notificationsSent.newMentorNotified}`)
       }

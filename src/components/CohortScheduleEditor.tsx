@@ -87,6 +87,7 @@ const BULK_EDITABLE_FIELDS: { key: keyof ScheduleRow; label: string; type: 'text
   { key: 'session_material', label: 'Session Material', type: 'text' },
   { key: 'session_recording', label: 'Session Recording', type: 'text' },
   { key: 'mentor_id', label: 'Mentor', type: 'dropdown' },
+  { key: 'swapped_mentor_id', label: 'Swap Mentor', type: 'dropdown' },
   { key: 'teams_meeting_link', label: 'Teams Link', type: 'text' },
   { key: 'time', label: 'Time', type: 'time' },
 ]
@@ -104,6 +105,7 @@ const DISPLAY_COLUMNS: { key: keyof ScheduleRow; label: string; width: string }[
   { key: 'session_material', label: 'Session Material', width: 'w-40' },
   { key: 'session_recording', label: 'Session Recording', width: 'w-40' },
   { key: 'mentor_id', label: 'Mentor', width: 'w-28' },
+  { key: 'swapped_mentor_id', label: 'Swap Mentor', width: 'w-28' },
   { key: 'teams_meeting_link', label: 'Teams Link', width: 'w-40' },
 ]
 
@@ -175,6 +177,10 @@ export default function CohortScheduleEditor() {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [isShifting, setIsShifting] = useState(false)
 
+  // Free mentors for swap (mentors available at the selected session's date/time)
+  const [freeMentorsForSwap, setFreeMentorsForSwap] = useState<number[]>([])
+  const [loadingFreeMentors, setLoadingFreeMentors] = useState(false)
+
   // Click outside handler
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -229,6 +235,49 @@ export default function CohortScheduleEditor() {
     }
     fetchMentors()
   }, [])
+
+  // Fetch free mentors when editing swapped_mentor_id
+  useEffect(() => {
+    const fetchFreeMentors = async () => {
+      if (!editingCell || editingCell.field !== 'swapped_mentor_id') {
+        setFreeMentorsForSwap([])
+        return
+      }
+
+      // Find the row being edited
+      const editingRow = scheduleData.find(r => r.id === editingCell.rowId)
+      if (!editingRow || !editingRow.date || !editingRow.time) {
+        setFreeMentorsForSwap([])
+        return
+      }
+
+      setLoadingFreeMentors(true)
+      try {
+        const response = await fetch('/api/mentors/availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: editingRow.date,
+            time: editingRow.time,
+            excludeSessionId: editingRow.id,
+            excludeTableName: tableName
+          })
+        })
+        
+        const data = await response.json()
+        if (data.freeMentorIds) {
+          setFreeMentorsForSwap(data.freeMentorIds)
+        }
+      } catch (err) {
+        console.error('Error fetching free mentors:', err)
+        setFreeMentorsForSwap([])
+      } finally {
+        setLoadingFreeMentors(false)
+      }
+    }
+
+    fetchFreeMentors()
+  }, [editingCell, scheduleData, tableName])
 
   // Fetch cohort numbers when cohort type changes
   useEffect(() => {
@@ -644,6 +693,15 @@ export default function CohortScheduleEditor() {
       if (newSet.has(field)) {
         newSet.delete(field)
       } else {
+        // Mentor and Swap Mentor are mutually exclusive
+        if (field === 'mentor_id' && newSet.has('swapped_mentor_id')) {
+          showToast('Cannot select both Mentor and Swap Mentor in bulk edit', 'error')
+          return prev
+        }
+        if (field === 'swapped_mentor_id' && newSet.has('mentor_id')) {
+          showToast('Cannot select both Mentor and Swap Mentor in bulk edit', 'error')
+          return prev
+        }
         newSet.add(field)
       }
       return newSet
@@ -1560,6 +1618,50 @@ export default function CohortScheduleEditor() {
       )
     }
 
+    // Swapped Mentor dropdown (for class coverage/swap)
+    if (column.key === 'swapped_mentor_id' && currentRow) {
+      // Filter out the current mentor_id - can't swap with yourself
+      const currentMentorId = currentRow.mentor_id
+      // Also filter by availability using the freeMentors state
+      const availableMentors = freeMentorsForSwap.length > 0 
+        ? mentors.filter(m => m.id !== currentMentorId && freeMentorsForSwap.includes(m.id))
+        : mentors.filter(m => m.id !== currentMentorId)
+      
+      return (
+        <select
+          value={editingCell.value || ''}
+          onMouseDown={() => { isSelectingDropdown.current = true }}
+          onChange={(e) => {
+            const newValue = e.target.value
+            isSelectingDropdown.current = true
+            setEditingCell(prev => prev ? { ...prev, value: newValue } : null)
+            handleSaveEdit(newValue)
+          }}
+          onBlur={() => {
+            setTimeout(() => {
+              if (!isSelectingDropdown.current) {
+                handleCancelEdit()
+              }
+            }, 150)
+          }}
+          className="w-full bg-background border border-primary rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          autoFocus
+          {...commonProps}
+        >
+          <option value="">No swap</option>
+          {loadingFreeMentors ? (
+            <option disabled>Loading available mentors...</option>
+          ) : availableMentors.length === 0 ? (
+            <option disabled>No mentors available at this time</option>
+          ) : (
+            availableMentors.map(mentor => (
+              <option key={mentor.id} value={mentor.id}>{mentor.name}</option>
+            ))
+          )}
+        </select>
+      )
+    }
+
     // Default text input
     return (
       <input
@@ -1615,6 +1717,19 @@ export default function CohortScheduleEditor() {
         <span className="text-foreground">{mentor.name}</span>
       ) : (
         <span className="text-muted-foreground">{value || '-'}</span>
+      )
+    }
+
+    // Swapped Mentor ID - show mentor name with swap indicator
+    if (column.key === 'swapped_mentor_id') {
+      if (!value) {
+        return <span className="text-muted-foreground">-</span>
+      }
+      const mentor = mentors.find(m => m.id === Number(value))
+      return mentor ? (
+        <span className="text-orange-400 font-medium">{mentor.name}</span>
+      ) : (
+        <span className="text-muted-foreground">{value}</span>
       )
     }
 
@@ -3089,25 +3204,38 @@ export default function CohortScheduleEditor() {
                     Select which fields you want to update:
                   </p>
                   <div className="grid grid-cols-1 gap-2">
-                    {BULK_EDITABLE_FIELDS.map(field => (
-                      <label
-                        key={field.key}
-                        className={cn(
-                          "flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all",
-                          selectedBulkFields.has(field.key)
-                            ? "bg-violet-500/10 border-violet-500/50"
-                            : "bg-muted/20 border-border/50 hover:bg-muted/40"
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedBulkFields.has(field.key)}
-                          onChange={() => toggleBulkField(field.key)}
-                          className="w-4 h-4 rounded border-border bg-muted accent-violet-500"
-                        />
-                        <span className="text-foreground">{field.label}</span>
-                      </label>
-                    ))}
+                    {BULK_EDITABLE_FIELDS.map(field => {
+                      // Disable mentor_id if swapped_mentor_id is selected and vice versa
+                      const isDisabled = 
+                        (field.key === 'mentor_id' && selectedBulkFields.has('swapped_mentor_id')) ||
+                        (field.key === 'swapped_mentor_id' && selectedBulkFields.has('mentor_id'))
+                      
+                      return (
+                        <label
+                          key={field.key}
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-xl border transition-all",
+                            isDisabled 
+                              ? "opacity-40 cursor-not-allowed bg-muted/10 border-border/30"
+                              : selectedBulkFields.has(field.key)
+                                ? "bg-violet-500/10 border-violet-500/50 cursor-pointer"
+                                : "bg-muted/20 border-border/50 hover:bg-muted/40 cursor-pointer"
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedBulkFields.has(field.key)}
+                            onChange={() => !isDisabled && toggleBulkField(field.key)}
+                            disabled={isDisabled}
+                            className="w-4 h-4 rounded border-border bg-muted accent-violet-500 disabled:opacity-50"
+                          />
+                          <span className={cn("text-foreground", isDisabled && "text-muted-foreground")}>
+                            {field.label}
+                            {isDisabled && <span className="ml-2 text-xs">(mutually exclusive)</span>}
+                          </span>
+                        </label>
+                      )
+                    })}
                   </div>
                 </div>
               ) : (
