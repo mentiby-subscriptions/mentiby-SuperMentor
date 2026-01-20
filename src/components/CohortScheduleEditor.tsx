@@ -1209,6 +1209,10 @@ export default function CohortScheduleEditor() {
 
     setIsSaving(true)
 
+    // Fields that should trigger the session update handler
+    const handlerTriggerFields = ['date', 'time', 'mentor_id', 'swapped_mentor_id', 'subject_name', 'session_type', 'subject_topic']
+    const shouldTriggerHandler = handlerTriggerFields.includes(editingCell.field)
+
     try {
       const response = await fetch('/api/cohort/schedule', {
         method: 'PATCH',
@@ -1217,7 +1221,9 @@ export default function CohortScheduleEditor() {
           tableName,
           id: editingCell.rowId,
           field: editingCell.field,
-          value: valueToSave || null
+          value: valueToSave || null,
+          oldValue: editingCell.originalValue,
+          triggerUpdateHandler: shouldTriggerHandler
         })
       })
 

@@ -74,9 +74,13 @@ export async function PATCH(request: Request) {
       }
     )
 
-    // If updating date or time, first fetch the old values
+    // Fields that should trigger the session update handler
+    const handlerTriggerFields = ['date', 'time', 'mentor_id', 'swapped_mentor_id', 'subject_name', 'session_type', 'subject_topic']
+    const shouldFetchOldSession = handlerTriggerFields.includes(field) && triggerUpdateHandler
+
+    // If updating a field that triggers the handler, first fetch the old values
     let oldSession: any = null
-    if ((field === 'date' || field === 'time') && triggerUpdateHandler) {
+    if (shouldFetchOldSession) {
       const { data: sessionData } = await supabaseB
         .from(tableName)
         .select('*')
@@ -99,23 +103,41 @@ export async function PATCH(request: Request) {
       )
     }
 
-    // If date or time changed and handler should be triggered, call the session update handler
-    if (oldSession && triggerUpdateHandler && (field === 'date' || field === 'time')) {
+    // If a handler-triggerable field changed, call the session update handler
+    if (oldSession && triggerUpdateHandler && handlerTriggerFields.includes(field)) {
       try {
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        
+        // Build handler payload based on what changed
+        const handlerPayload: any = {
+          tableName,
+          sessionId: id,
+          changedField: field,
+          oldValue: oldSession[field],
+          newValue: value,
+          oldDate: oldSession.date,
+          oldTime: oldSession.time,
+          newDate: field === 'date' ? value : oldSession.date,
+          newTime: field === 'time' ? value : oldSession.time
+        }
+
+        // For mentor changes, include mentor IDs
+        if (field === 'mentor_id' || field === 'swapped_mentor_id') {
+          handlerPayload.oldMentorId = oldSession[field]
+          handlerPayload.newMentorId = value
+        }
+
+        // For session type changes, include session types
+        if (field === 'session_type') {
+          handlerPayload.oldSessionType = oldSession.session_type
+          handlerPayload.newSessionType = value
+        }
         
         // Call the session update handler asynchronously
         fetch(`${baseUrl}/api/cohort/session-update-handler`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tableName,
-            sessionId: id,
-            oldDate: oldSession.date,
-            oldTime: oldSession.time,
-            newDate: field === 'date' ? value : oldSession.date,
-            newTime: field === 'time' ? value : oldSession.time
-          })
+          body: JSON.stringify(handlerPayload)
         }).then(async (res) => {
           if (res.ok) {
             const result = await res.json()
