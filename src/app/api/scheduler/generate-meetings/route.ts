@@ -1,11 +1,23 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-// This endpoint is called daily (via Vercel Cron) to generate Teams meeting links
-// for the next 7 days of classes
+// This endpoint is called daily (via Vercel Cron) to:
+// 1. Generate Teams meeting links for the next 7 days of classes
+// 2. Fetch recordings from OneDrive for yesterday's completed classes
 
 const MS_GRAPH_AUTH_URL = 'https://login.microsoftonline.com'
 const MS_GRAPH_API_URL = 'https://graph.microsoft.com/v1.0'
+
+// OneDrive Recording Interface
+interface OneDriveRecording {
+  name: string
+  webUrl: string
+  createdDateTime: string
+  id: string
+}
+
+// Cache for recordings (refreshed each cron run)
+let cachedRecordings: OneDriveRecording[] | null = null
 
 // Get access token for MS Graph
 async function getAccessToken(): Promise<string> {
@@ -245,6 +257,255 @@ async function getCohortTables(supabaseB: any): Promise<string[]> {
   }
 }
 
+// ============================================
+// ONEDRIVE RECORDING FETCH FUNCTIONS
+// ============================================
+
+// Fetch all recordings from OneDrive Recordings folder
+async function fetchOneDriveRecordings(accessToken: string): Promise<OneDriveRecording[]> {
+  if (cachedRecordings) {
+    return cachedRecordings
+  }
+  
+  const organizerUserId = process.env.MS_ORGANIZER_USER_ID
+  if (!organizerUserId) return []
+
+  try {
+    // First, get the Recordings folder ID
+    const folderUrl = `${MS_GRAPH_API_URL}/users/${organizerUserId}/drive/root:/Recordings`
+    
+    const folderResponse = await fetch(folderUrl, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    })
+    
+    if (!folderResponse.ok) {
+      console.log(`  Could not find Recordings folder: ${folderResponse.status}`)
+      return []
+    }
+    
+    const folderData = await folderResponse.json()
+    const folderId = folderData.id
+    
+    // Then get children of the folder (simpler query, no $orderby)
+    const recordingsUrl = `${MS_GRAPH_API_URL}/users/${organizerUserId}/drive/items/${folderId}/children`
+    
+    const response = await fetch(recordingsUrl, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.log(`  Could not fetch OneDrive recordings: ${response.status} - ${errorText}`)
+      return []
+    }
+
+    const data = await response.json()
+    
+    if (!data.value || data.value.length === 0) {
+      console.log(`  No recordings found in OneDrive`)
+      return []
+    }
+
+    cachedRecordings = data.value.map((item: any) => ({
+      name: item.name,
+      webUrl: item.webUrl,
+      createdDateTime: item.createdDateTime,
+      id: item.id
+    }))
+    
+    console.log(`  Loaded ${cachedRecordings!.length} recordings from OneDrive`)
+    return cachedRecordings!
+
+  } catch (error: any) {
+    console.log(`  Error fetching OneDrive recordings: ${error.message}`)
+    return []
+  }
+}
+
+// Create a shareable link for a recording (so external users can access it)
+async function createSharingLink(accessToken: string, fileId: string): Promise<string | null> {
+  const organizerUserId = process.env.MS_ORGANIZER_USER_ID
+  if (!organizerUserId) return null
+
+  try {
+    const url = `${MS_GRAPH_API_URL}/users/${organizerUserId}/drive/items/${fileId}/createLink`
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type: 'view',           // Read-only access
+        scope: 'anonymous'      // Anyone with the link can view
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.log(`    Could not create sharing link: ${response.status} - ${errorText}`)
+      return null
+    }
+
+    const data = await response.json()
+    return data.link?.webUrl || null
+
+  } catch (error: any) {
+    console.log(`    Error creating sharing link: ${error.message}`)
+    return null
+  }
+}
+
+// Match a session to a recording by cohort type/number and date
+// Recording names can be in various formats:
+// - "Basic 6.0 - Orientation Session..."
+// - "Cohort - 2.0 (20-01-2026)-20260120..."
+// - "Cohort-3.0(20012026)- Strings-..."
+// - "Cohort Basic 1.1 - Web Development - Saswata-20260105..."
+function findRecordingForSession(
+  recordings: OneDriveRecording[],
+  meetingSubject: string,
+  sessionDate: string,
+  cohortType?: string,
+  cohortNumber?: string
+): OneDriveRecording | null {
+  // Session date in multiple formats for matching
+  const dateYYYYMMDD = sessionDate.replace(/-/g, '') // 20260120
+  const dateParts = sessionDate.split('-') // [2026, 01, 20]
+  const dateDDMMYYYY = `${dateParts[2]}${dateParts[1]}${dateParts[0]}` // 20012026
+  const dateDDMMYY = `${dateParts[2]}${dateParts[1]}${dateParts[0].slice(2)}` // 200126
+  const dateDisplayFormat = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}` // 20-01-2026
+  
+  console.log(`    Looking for recording with dates: ${dateYYYYMMDD}, ${dateDDMMYYYY}, or ${dateDisplayFormat}`)
+  
+  // Extract cohort info from subject if not provided
+  // Subject format: "Cohort Basic 6.0 - Orientation Session - Swaroop"
+  let cohortTypeFromSubject = cohortType?.toLowerCase() || ''
+  let cohortNumberFromSubject = cohortNumber || ''
+  
+  if (!cohortTypeFromSubject) {
+    const cohortMatch = meetingSubject.match(/cohort\s+(\w+)\s+([\d.]+)/i)
+    if (cohortMatch) {
+      cohortTypeFromSubject = cohortMatch[1].toLowerCase()
+      cohortNumberFromSubject = cohortMatch[2]
+    }
+  }
+  
+  console.log(`    Cohort: ${cohortTypeFromSubject} ${cohortNumberFromSubject}`)
+  
+  for (const recording of recordings) {
+    const normalizedName = recording.name.toLowerCase()
+    
+    // Check if recording contains the date in any format
+    const hasDate = recording.name.includes(dateYYYYMMDD) || 
+                    recording.name.includes(dateDDMMYYYY) ||
+                    recording.name.includes(dateDisplayFormat) ||
+                    recording.name.includes(dateDDMMYY)
+    
+    // Also check createdDateTime for date matching
+    const createdDate = recording.createdDateTime?.split('T')[0] || ''
+    const createdDateMatches = createdDate === sessionDate
+    
+    if (!hasDate && !createdDateMatches) {
+      continue
+    }
+    
+    // Check for cohort type and number match
+    // Patterns: "Basic 6.0", "Cohort - 6.0", "Cohort-6.0", "Cohort Basic 6.0"
+    const hasMatchingCohort = 
+      // Direct match: "Basic 6.0" or "basic 6.0"
+      normalizedName.includes(`${cohortTypeFromSubject} ${cohortNumberFromSubject}`) ||
+      normalizedName.includes(`${cohortTypeFromSubject}${cohortNumberFromSubject}`) ||
+      // Just the number: "- 6.0" or "-6.0" 
+      (cohortNumberFromSubject && (
+        normalizedName.includes(`- ${cohortNumberFromSubject}`) ||
+        normalizedName.includes(`-${cohortNumberFromSubject}`)
+      )) ||
+      // Type only for specific matches
+      (cohortTypeFromSubject && normalizedName.includes(cohortTypeFromSubject))
+    
+    if (hasMatchingCohort) {
+      console.log(`    ✓ Match found: ${recording.name}`)
+      console.log(`      Date match: ${hasDate ? 'in filename' : 'by created date'}`)
+      return recording
+    }
+  }
+  
+  // Fallback: Try matching by subject parts (more lenient)
+  const normalizedSubject = meetingSubject.trim().toLowerCase()
+  const subjectParts = normalizedSubject.split(' - ').map(p => p.trim()).filter(p => p.length > 2)
+  
+  for (const recording of recordings) {
+    const normalizedName = recording.name.toLowerCase()
+    
+    // Check date first
+    const hasDate = recording.name.includes(dateYYYYMMDD) || 
+                    recording.name.includes(dateDDMMYYYY) ||
+                    recording.name.includes(dateDisplayFormat)
+    
+    const createdDate = recording.createdDateTime?.split('T')[0] || ''
+    const createdDateMatches = createdDate === sessionDate
+    
+    if (!hasDate && !createdDateMatches) {
+      continue
+    }
+    
+    // Check if key subject parts are present
+    const matchingParts = subjectParts.filter(part => normalizedName.includes(part))
+    if (matchingParts.length >= 2) {
+      console.log(`    ✓ Fuzzy match found: ${recording.name}`)
+      console.log(`      Matched parts: ${matchingParts.join(', ')}`)
+      return recording
+    }
+  }
+  
+  console.log(`    No recording found for date ${sessionDate}`)
+  return null
+}
+
+// Get recording URL for a session by checking OneDrive
+// Creates a shareable link so external users can access it
+async function fetchRecordingForSession(
+  accessToken: string,
+  meetingSubject: string,
+  sessionDate: string,
+  cohortType?: string,
+  cohortNumber?: string
+): Promise<string | null> {
+  const recordings = await fetchOneDriveRecordings(accessToken)
+  
+  if (recordings.length === 0) {
+    return null
+  }
+  
+  const matchedRecording = findRecordingForSession(
+    recordings, 
+    meetingSubject, 
+    sessionDate,
+    cohortType,
+    cohortNumber
+  )
+  
+  if (matchedRecording) {
+    console.log(`  ✓ Found matching recording: ${matchedRecording.name}`)
+    
+    // Create a shareable link so anyone (including external users) can access
+    const sharingLink = await createSharingLink(accessToken, matchedRecording.id)
+    
+    if (sharingLink) {
+      console.log(`  ✓ Created sharing link`)
+      return sharingLink
+    }
+    
+    // Fallback to direct URL if sharing link creation fails
+    console.log(`  ⚠ Could not create sharing link, using direct URL`)
+    return matchedRecording.webUrl
+  }
+  
+  return null
+}
+
 export async function POST(request: Request) {
   try {
     // Verify cron secret for security
@@ -294,14 +555,158 @@ export async function POST(request: Request) {
       }, { status: 500 })
     }
 
-    // Calculate date range (today + 7 days)
+    // Calculate dates
     const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
     const nextWeek = new Date(today)
     nextWeek.setDate(nextWeek.getDate() + 7)
 
     const todayStr = today.toISOString().split('T')[0]
+    const yesterdayStr = yesterday.toISOString().split('T')[0]
     const nextWeekStr = nextWeek.toISOString().split('T')[0]
 
+    // Build mentor name map for recording matching
+    const mentorNameMap = new Map<number, string>()
+    if (allMentors) {
+      for (const mentor of allMentors) {
+        if (mentor.Name) {
+          mentorNameMap.set(mentor.mentor_id, mentor.Name)
+        }
+      }
+    }
+
+    // ============================================
+    // PHASE 1: Fetch recordings for past sessions
+    // ============================================
+    const recordingResults: any[] = []
+    const cohortTablesForRecordings = await getCohortTables(supabaseB)
+    
+    console.log('\n=== PHASE 1: Fetching Recordings ===')
+    console.log(`Checking for recordings from ${yesterdayStr}`)
+
+    // Reset recording cache for fresh fetch
+    cachedRecordings = null
+
+    // Parse cohort info helper for recording matching
+    const getCohortInfoFromTable = (tableName: string) => {
+      const name = tableName.replace('_schedule', '')
+      const match = name.match(/^([a-zA-Z]+)(\d+)_(\d+)$/)
+      if (!match) return null
+      const [, typeRaw, major, minor] = match
+      return {
+        type: typeRaw.charAt(0).toUpperCase() + typeRaw.slice(1),
+        number: `${major}.${minor}`
+      }
+    }
+
+    for (const tableName of cohortTablesForRecordings) {
+      try {
+        // Parse cohort info for constructing meeting subject
+        const cohortInfo = getCohortInfoFromTable(tableName)
+        
+        // Fetch yesterday's sessions that:
+        // - Have a teams_meeting_link (meeting was scheduled)
+        // - Don't have a session_recording (recording not yet fetched)
+        const { data: pastSessions, error: pastError } = await supabaseB
+          .from(tableName)
+          .select('id, date, time, subject_name, teams_meeting_link, session_recording, mentor_id')
+          .eq('date', yesterdayStr)
+          .not('teams_meeting_link', 'is', null)
+
+        if (pastError) {
+          console.log(`Error querying ${tableName} for recordings:`, pastError.message)
+          continue
+        }
+
+        if (!pastSessions || pastSessions.length === 0) {
+          continue
+        }
+
+        // Filter sessions that need recordings (have meeting link but no recording yet)
+        const sessionsNeedingRecordings = pastSessions.filter(s => {
+          // Must have meeting link
+          if (!s.teams_meeting_link || s.teams_meeting_link.trim() === '') return false
+          
+          // Must not already have recording
+          if (s.session_recording && s.session_recording.trim() !== '') return false
+          
+          return true
+        })
+
+        if (sessionsNeedingRecordings.length === 0) {
+          continue
+        }
+
+        console.log(`\n${tableName}: ${sessionsNeedingRecordings.length} session(s) need recordings`)
+
+        let recordingsFetched = 0
+
+        for (const session of sessionsNeedingRecordings) {
+          // Construct the meeting subject to match against OneDrive recordings
+          // Format: "Cohort {Type} {Number} - {subject_name} - {Mentor Name}"
+          const mentorName = session.mentor_id ? mentorNameMap.get(session.mentor_id) : null
+          let meetingSubject = ''
+          
+          if (cohortInfo) {
+            meetingSubject = `Cohort ${cohortInfo.type} ${cohortInfo.number}`
+            if (session.subject_name) {
+              meetingSubject += ` - ${session.subject_name}`
+            }
+            if (mentorName) {
+              meetingSubject += ` - ${mentorName}`
+            }
+          } else {
+            // Fallback: just use subject_name
+            meetingSubject = session.subject_name || 'Session'
+          }
+          
+          const sessionDate = String(session.date).split('T')[0]
+          console.log(`  Checking recording for: "${meetingSubject}" (${sessionDate})`)
+          
+          const recordingUrl = await fetchRecordingForSession(
+            accessToken, 
+            meetingSubject, 
+            sessionDate,
+            cohortInfo?.type,
+            cohortInfo?.number
+          )
+          
+          if (recordingUrl) {
+            // Update the session with the recording URL
+            const { error: updateError } = await supabaseB
+              .from(tableName)
+              .update({ session_recording: recordingUrl })
+              .eq('id', session.id)
+
+            if (updateError) {
+              console.log(`  Error saving recording URL: ${updateError.message}`)
+            } else {
+              console.log(`  ✓ Saved recording URL to database`)
+              recordingsFetched++
+            }
+          }
+        }
+
+        if (recordingsFetched > 0) {
+          recordingResults.push({
+            table: tableName,
+            sessionsChecked: sessionsNeedingRecordings.length,
+            recordingsFetched
+          })
+        }
+
+      } catch (tableError: any) {
+        console.log(`Error processing ${tableName} for recordings: ${tableError.message}`)
+      }
+    }
+
+    console.log(`\nPhase 1 Complete: ${recordingResults.reduce((sum, r) => sum + r.recordingsFetched, 0)} recordings fetched`)
+
+    // ============================================
+    // PHASE 2: Generate meetings for upcoming sessions
+    // ============================================
+    console.log('\n=== PHASE 2: Generating Meetings ===')
     console.log(`Generating meetings for ${todayStr} to ${nextWeekStr}`)
 
     const results: any[] = []
@@ -482,8 +887,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      dateRange: { from: todayStr, to: nextWeekStr },
-      results
+      phase1_recordings: {
+        dateChecked: yesterdayStr,
+        tablesProcessed: recordingResults.length,
+        totalRecordingsFetched: recordingResults.reduce((sum, r) => sum + r.recordingsFetched, 0),
+        details: recordingResults
+      },
+      phase2_meetings: {
+        dateRange: { from: todayStr, to: nextWeekStr },
+        results
+      }
     })
 
   } catch (error: any) {
