@@ -1254,8 +1254,8 @@ export async function POST(request: Request) {
 
         const cohortInfo = parseCohortFromTableName(tableName)
         const subject = cohortInfo 
-          ? `${cohortInfo.type} ${cohortInfo.number} - ${session.subject_name || 'Class'}`
-          : `Class - ${session.subject_name || 'Session'}`
+          ? `Cohort ${cohortInfo.type} ${cohortInfo.number} - ${session.subject_name || 'Session'}`
+          : `Cohort - ${session.subject_name || 'Session'}`
 
         const newLink = await createTeamsMeeting(accessToken, subject, startDateTime, endDateTime)
         
@@ -1303,11 +1303,11 @@ export async function POST(request: Request) {
         startDate.setMinutes(startDate.getMinutes() + 90)
         const endDateTime = `${effectiveDate}T${startDate.toTimeString().slice(0, 8)}`
         
-        // Generate subject line
-        const cohortMatch = tableName.match(/(\w+)_(\d+(?:_\d+)?)/i)
-        const cohortType = cohortMatch ? cohortMatch[1] : 'Cohort'
-        const cohortNumber = cohortMatch ? cohortMatch[2].replace('_', '.') : ''
-        const subject = `${cohortType} ${cohortNumber} - W${session.week_number} S${session.session_number} - ${session.subject_name || 'Class'}`
+        // Generate subject line (same format as cron: "Cohort Basic 6.0 - Subject Name")
+        const cohortInfo = parseCohortFromTableName(tableName)
+        const subject = cohortInfo 
+          ? `Cohort ${cohortInfo.type} ${cohortInfo.number} - ${session.subject_name || 'Session'}`
+          : `Cohort - ${session.subject_name || 'Session'}`
         
         // Create meeting using calendar event
         const newMeetingLink = await createTeamsMeeting(

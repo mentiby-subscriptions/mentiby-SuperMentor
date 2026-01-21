@@ -566,16 +566,6 @@ export async function POST(request: Request) {
     const yesterdayStr = yesterday.toISOString().split('T')[0]
     const nextWeekStr = nextWeek.toISOString().split('T')[0]
 
-    // Build mentor name map for recording matching
-    const mentorNameMap = new Map<number, string>()
-    if (allMentors) {
-      for (const mentor of allMentors) {
-        if (mentor.Name) {
-          mentorNameMap.set(mentor.mentor_id, mentor.Name)
-        }
-      }
-    }
-
     // ============================================
     // PHASE 1: Fetch recordings for past sessions
     // ============================================
@@ -644,22 +634,10 @@ export async function POST(request: Request) {
 
         for (const session of sessionsNeedingRecordings) {
           // Construct the meeting subject to match against OneDrive recordings
-          // Format: "Cohort {Type} {Number} - {subject_name} - {Mentor Name}"
-          const mentorName = session.mentor_id ? mentorNameMap.get(session.mentor_id) : null
-          let meetingSubject = ''
-          
-          if (cohortInfo) {
-            meetingSubject = `Cohort ${cohortInfo.type} ${cohortInfo.number}`
-            if (session.subject_name) {
-              meetingSubject += ` - ${session.subject_name}`
-            }
-            if (mentorName) {
-              meetingSubject += ` - ${mentorName}`
-            }
-          } else {
-            // Fallback: just use subject_name
-            meetingSubject = session.subject_name || 'Session'
-          }
+          // Format matches meeting creation: "Cohort {Type} {Number} - {subject_name}"
+          const meetingSubject = cohortInfo 
+            ? `Cohort ${cohortInfo.type} ${cohortInfo.number} - ${session.subject_name || 'Session'}`
+            : `Cohort - ${session.subject_name || 'Session'}`
           
           const sessionDate = String(session.date).split('T')[0]
           console.log(`  Checking recording for: "${meetingSubject}" (${sessionDate})`)
@@ -802,9 +780,9 @@ export async function POST(request: Request) {
             }
 
             // Create meeting subject: "Cohort Basic 1.1 - Web Development"
-            const cohortTypeForSubject = cohortInfo?.type || 'Unknown'
-            const cohortNumberForSubject = cohortInfo?.number || '0.0'
-            const subject = `Cohort ${cohortTypeForSubject} ${cohortNumberForSubject} - ${session.subject_name || 'Session'}`
+            const subject = cohortInfo 
+              ? `Cohort ${cohortInfo.type} ${cohortInfo.number} - ${session.subject_name || 'Session'}`
+              : `Cohort - ${session.subject_name || 'Session'}`
 
             // Default time if not set (you can customize this)
             const sessionTime = session.time || '19:00:00' // 7 PM default
