@@ -1120,7 +1120,9 @@ export async function POST(request: Request) {
       oldMentorId,
       newMentorId,
       oldSessionType,
-      newSessionType
+      newSessionType,
+      // New session flag - when adding a new session
+      isNewSession = false
     } = body
 
     if (!tableName || !sessionId) {
@@ -1129,6 +1131,7 @@ export async function POST(request: Request) {
 
     console.log(`\n=== Session Update Handler ===`)
     console.log(`Table: ${tableName}, Session ID: ${sessionId}`)
+    console.log(`Is new session: ${isNewSession}`)
     console.log(`Changed field: ${changedField || 'date/time'}`)
     if (oldDate || newDate) console.log(`Date: ${oldDate} → ${newDate}`)
     if (oldTime || newTime) console.log(`Time: ${oldTime} → ${newTime}`)
@@ -1270,6 +1273,68 @@ export async function POST(request: Request) {
         }
       } catch (error) {
         console.error('Error handling meeting:', error)
+      }
+    } else if (isNewSession && !session.teams_meeting_link && !isContest) {
+      // NEW SESSION: Create meeting link for the first time
+      console.log('New session without meeting link - creating Teams meeting...')
+      
+      try {
+        const accessToken = await getAccessToken()
+        
+        // Get date and time from session
+        let effectiveDate = session.date
+        if (effectiveDate instanceof Date) {
+          effectiveDate = effectiveDate.toISOString().split('T')[0]
+        } else if (typeof effectiveDate === 'string' && effectiveDate.includes('T')) {
+          effectiveDate = effectiveDate.split('T')[0]
+        }
+        
+        let effectiveTime = session.time || '19:00'
+        if (typeof effectiveTime === 'string') {
+          effectiveTime = effectiveTime.substring(0, 5)
+        }
+        
+        console.log(`Creating meeting for new session: ${effectiveDate}, ${effectiveTime}`)
+        
+        const startDateTime = `${effectiveDate}T${effectiveTime}:00`
+        
+        // Calculate end time (1.5 hours later)
+        const startDate = new Date(`${effectiveDate}T${effectiveTime}:00`)
+        startDate.setMinutes(startDate.getMinutes() + 90)
+        const endDateTime = `${effectiveDate}T${startDate.toTimeString().slice(0, 8)}`
+        
+        // Generate subject line
+        const cohortMatch = tableName.match(/(\w+)_(\d+(?:_\d+)?)/i)
+        const cohortType = cohortMatch ? cohortMatch[1] : 'Cohort'
+        const cohortNumber = cohortMatch ? cohortMatch[2].replace('_', '.') : ''
+        const subject = `${cohortType} ${cohortNumber} - W${session.week_number} S${session.session_number} - ${session.subject_name || 'Class'}`
+        
+        // Create meeting using calendar event
+        const newMeetingLink = await createTeamsMeeting(
+          accessToken,
+          subject,
+          startDateTime,
+          endDateTime
+        )
+        
+        if (newMeetingLink) {
+          results.meetingCreated = true
+          results.newMeetingLink = newMeetingLink
+          
+          // Update session with meeting link
+          const { error: updateError } = await supabaseB
+            .from(tableName)
+            .update({ teams_meeting_link: newMeetingLink })
+            .eq('id', sessionId)
+          
+          if (updateError) {
+            console.error('Failed to save meeting link to DB:', updateError)
+          } else {
+            console.log('New session updated with meeting link:', newMeetingLink)
+          }
+        }
+      } catch (error) {
+        console.error('Error creating meeting for new session:', error)
       }
     }
 
