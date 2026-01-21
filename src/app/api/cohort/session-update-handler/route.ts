@@ -260,21 +260,99 @@ async function deleteTeamsMeeting(accessToken: string, meetingLink: string): Pro
   }
 }
 
-// Create a new Teams meeting via calendar event (same approach as cron)
+// Create Teams meeting with full settings (3-step approach)
+// Step 1: Create standalone online meeting with lobby bypass + auto-recording
+// Step 2: PATCH to disable attendee mic/camera
+// Step 3: Create calendar event linked to the meeting
 async function createTeamsMeeting(
   accessToken: string,
   subject: string,
   startDateTime: string,  // Format: YYYY-MM-DDTHH:MM:SS
-  endDateTime: string     // Format: YYYY-MM-DDTHH:MM:SS
+  endDateTime: string,    // Format: YYYY-MM-DDTHH:MM:SS
+  attendeeEmails: string[] = []
 ): Promise<string | null> {
   const organizerUserId = process.env.MS_ORGANIZER_USER_ID
   if (!organizerUserId) {
     throw new Error('MS_ORGANIZER_USER_ID not configured')
   }
 
-  const url = `${MS_GRAPH_API_URL}/users/${organizerUserId}/events`
+  console.log(`  Creating meeting: ${subject}`)
+  console.log(`  Start: ${startDateTime}, End: ${endDateTime}`)
 
-  // Create calendar event with Teams meeting (same as cron job)
+  // STEP 1: Create standalone online meeting with lobby bypass + auto-recording
+  const meetingBody = {
+    subject,
+    startDateTime: new Date(startDateTime).toISOString(),
+    endDateTime: new Date(endDateTime).toISOString(),
+    lobbyBypassSettings: {
+      scope: 'everyone',
+      isDialInBypassEnabled: true
+    },
+    autoAdmittedUsers: 'everyone',
+    recordAutomatically: true,
+    isEntryExitAnnounced: false,
+    allowMeetingChat: 'enabled',
+    allowTeamworkReactions: true
+  }
+
+  const meetingResponse = await fetch(`${MS_GRAPH_API_URL}/users/${organizerUserId}/onlineMeetings`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(meetingBody)
+  })
+
+  if (!meetingResponse.ok) {
+    const errorText = await meetingResponse.text()
+    console.error('Failed to create online meeting:', errorText)
+    return null
+  }
+
+  const meetingData = await meetingResponse.json()
+  const joinUrl = meetingData.joinUrl
+  const onlineMeetingId = meetingData.id
+
+  if (!joinUrl) {
+    console.error('No join URL in response:', JSON.stringify(meetingData, null, 2))
+    return null
+  }
+
+  console.log(`  Step 1: Online meeting created with lobby bypass + auto-recording`)
+
+  // STEP 2: PATCH to disable attendee mic/camera
+  try {
+    const patchResponse = await fetch(`${MS_GRAPH_API_URL}/users/${organizerUserId}/onlineMeetings/${onlineMeetingId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        allowAttendeeToEnableMic: false,
+        allowAttendeeToEnableCamera: false
+      })
+    })
+
+    if (patchResponse.ok) {
+      console.log(`  Step 2: Mic/camera restrictions applied`)
+    } else {
+      console.log(`  Step 2: Warning - mic/camera patch failed`)
+    }
+  } catch (patchError) {
+    console.log(`  Step 2: Warning - patch error`)
+  }
+
+  // STEP 3: Create calendar event linked to the meeting
+  // Build attendees list
+  const attendees = attendeeEmails
+    .filter(email => email && email.trim())
+    .map(email => ({
+      emailAddress: { address: email.trim() },
+      type: 'required'
+    }))
+
   const eventBody = {
     subject,
     start: {
@@ -287,69 +365,34 @@ async function createTeamsMeeting(
     },
     isOnlineMeeting: true,
     onlineMeetingProvider: 'teamsForBusiness',
+    onlineMeeting: {
+      joinUrl: joinUrl
+    },
+    attendees,
     responseRequested: false,
     allowNewTimeProposals: false
   }
 
-  console.log(`  Creating calendar event: ${subject}`)
-  console.log(`  Start: ${startDateTime}, End: ${endDateTime}`)
+  try {
+    const eventResponse = await fetch(`${MS_GRAPH_API_URL}/users/${organizerUserId}/events`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(eventBody)
+    })
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(eventBody)
-  })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error('Failed to create calendar event:', errorText)
-    return null
-  }
-
-  const data = await response.json()
-  const joinUrl = data.onlineMeeting?.joinUrl
-  
-  if (!joinUrl) {
-    console.error('No join URL in response:', JSON.stringify(data, null, 2))
-    return null
-  }
-
-  // Enable auto-recording
-  const onlineMeetingId = data.onlineMeeting?.id
-  if (onlineMeetingId) {
-    try {
-      const patchUrl = `${MS_GRAPH_API_URL}/users/${organizerUserId}/onlineMeetings/${onlineMeetingId}`
-      const patchResponse = await fetch(patchUrl, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          recordAutomatically: true,
-          lobbyBypassSettings: {
-            scope: 'everyone',
-            isDialInBypassEnabled: true
-          },
-          autoAdmittedUsers: 'everyone',
-          // Attendees join muted with camera off (organizer is exempt)
-          allowAttendeeToEnableMic: false,
-          allowAttendeeToEnableCamera: false
-        })
-      })
-      
-      if (patchResponse.ok) {
-        console.log(`  Configured meeting: auto-recording, lobby bypass, attendees muted`)
-      }
-    } catch (patchError) {
-      console.log(`  Warning: Could not configure meeting settings`)
+    if (eventResponse.ok) {
+      console.log(`  Step 3: Calendar event created with ${attendees.length} attendees`)
+    } else {
+      console.log(`  Step 3: Warning - calendar event failed`)
     }
+  } catch (eventError) {
+    console.log(`  Step 3: Warning - calendar event error`)
   }
 
-  console.log(`  Created new meeting: ${joinUrl.substring(0, 50)}...`)
+  console.log(`  ✅ Meeting ready: ${joinUrl.substring(0, 50)}...`)
   return joinUrl
 }
 
@@ -1257,7 +1300,39 @@ export async function POST(request: Request) {
           ? `Cohort ${cohortInfo.type} ${cohortInfo.number} - ${session.subject_name || 'Session'}`
           : `Cohort - ${session.subject_name || 'Session'}`
 
-        const newLink = await createTeamsMeeting(accessToken, subject, startDateTime, endDateTime)
+        // Build attendee list (mentor + students)
+        const attendeeEmails: string[] = []
+        
+        // Get mentor email
+        const mentorId = session.swapped_mentor_id || session.mentor_id
+        if (mentorId) {
+          const { data: mentor } = await supabaseB
+            .from('Mentor Details')
+            .select('"Email address"')
+            .eq('mentor_id', mentorId)
+            .single()
+          if (mentor?.['Email address']) {
+            attendeeEmails.push(mentor['Email address'])
+          }
+        }
+        
+        // Get student emails for this cohort
+        if (cohortInfo) {
+          const { data: students } = await supabaseMain
+            .from('onboarding')
+            .select('"Email"')
+            .eq('"Cohort Type"', cohortInfo.type)
+            .eq('"Cohort Number"', cohortInfo.number)
+          if (students) {
+            students.forEach(s => {
+              if (s['Email']) attendeeEmails.push(s['Email'])
+            })
+          }
+        }
+        
+        console.log(`  Adding ${attendeeEmails.length} attendees to meeting`)
+
+        const newLink = await createTeamsMeeting(accessToken, subject, startDateTime, endDateTime, attendeeEmails)
         
         if (newLink) {
           results.meetingCreated = true
@@ -1309,12 +1384,45 @@ export async function POST(request: Request) {
           ? `Cohort ${cohortInfo.type} ${cohortInfo.number} - ${session.subject_name || 'Session'}`
           : `Cohort - ${session.subject_name || 'Session'}`
         
+        // Build attendee list (mentor + students)
+        const attendeeEmails: string[] = []
+        
+        // Get mentor email
+        const mentorId = session.swapped_mentor_id || session.mentor_id
+        if (mentorId) {
+          const { data: mentor } = await supabaseB
+            .from('Mentor Details')
+            .select('"Email address"')
+            .eq('mentor_id', mentorId)
+            .single()
+          if (mentor?.['Email address']) {
+            attendeeEmails.push(mentor['Email address'])
+          }
+        }
+        
+        // Get student emails for this cohort
+        if (cohortInfo) {
+          const { data: students } = await supabaseMain
+            .from('onboarding')
+            .select('"Email"')
+            .eq('"Cohort Type"', cohortInfo.type)
+            .eq('"Cohort Number"', cohortInfo.number)
+          if (students) {
+            students.forEach(s => {
+              if (s['Email']) attendeeEmails.push(s['Email'])
+            })
+          }
+        }
+        
+        console.log(`  Adding ${attendeeEmails.length} attendees to new session meeting`)
+        
         // Create meeting using calendar event
         const newMeetingLink = await createTeamsMeeting(
           accessToken,
           subject,
           startDateTime,
-          endDateTime
+          endDateTime,
+          attendeeEmails
         )
         
         if (newMeetingLink) {
