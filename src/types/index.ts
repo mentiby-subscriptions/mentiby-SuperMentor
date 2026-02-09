@@ -17,6 +17,7 @@ export interface OnboardingData {
   Goal: string;
   'Cohort Type': 'Basic' | 'Placement' | 'MERN' | 'Full Stack';
   'Cohort Number': string;
+  progress?: number | null;
 }
 
 export interface StuData {

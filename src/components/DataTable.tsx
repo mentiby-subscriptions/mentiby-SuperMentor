@@ -179,6 +179,10 @@ export default function DataTable({ data, isLoading, onDataUpdate }: DataTablePr
       if (editingCell.field === 'Graduation Year') {
         updateValue = editingCell.value ? parseInt(editingCell.value) : null
       }
+      if (editingCell.field === 'progress') {
+        const num = editingCell.value ? parseFloat(editingCell.value) : null
+        updateValue = num != null ? Math.min(100, Math.max(0, num)) : null
+      }
 
       console.log('=== UPDATE ATTEMPT ===')
       console.log('EnrollmentID:', editingCell.rowId)
@@ -502,7 +506,7 @@ export default function DataTable({ data, isLoading, onDataUpdate }: DataTablePr
       return (
         <div className="editing-cell">
           <input
-            type={field === 'Graduation Year' ? 'number' : 'text'}
+            type={field === 'Graduation Year' || field === 'progress' ? 'number' : 'text'}
             value={editingCell.value}
             onChange={(e) => setEditingCell(prev => prev ? { ...prev, value: e.target.value } : null)}
             className="w-full bg-transparent border-none outline-none text-foreground"
@@ -571,6 +575,26 @@ export default function DataTable({ data, isLoading, onDataUpdate }: DataTablePr
         </a>
       ) : (
         <span className="text-muted-foreground">-</span>
+      )
+    }
+
+    if (field === 'progress') {
+      const pct = value != null && value !== '' ? Number(value) : null
+      if (pct == null || isNaN(pct)) return <span className="text-muted-foreground">-</span>
+      const clamped = Math.min(100, Math.max(0, pct))
+      return (
+        <div className="flex items-center gap-2 min-w-[80px]">
+          <div className="flex-1 h-2 bg-muted/50 rounded-full overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all",
+                clamped >= 100 ? "bg-green-500" : clamped >= 50 ? "bg-blue-500" : "bg-amber-500"
+              )}
+              style={{ width: `${clamped}%` }}
+            />
+          </div>
+          <span className="text-xs font-medium tabular-nums w-9">{clamped}%</span>
+        </div>
       )
     }
 
@@ -1254,6 +1278,7 @@ export default function DataTable({ data, isLoading, onDataUpdate }: DataTablePr
                 <th className="px-2 py-3 sm:px-4 sm:py-4 text-left text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap">Skills</th>
                 <th className="px-2 py-3 sm:px-4 sm:py-4 text-left text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap">Projects</th>
                 <th className="px-2 py-3 sm:px-4 sm:py-4 text-left text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap">Goal</th>
+                <th className="px-2 py-3 sm:px-4 sm:py-4 text-left text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap">Progress</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
@@ -1406,6 +1431,14 @@ export default function DataTable({ data, isLoading, onDataUpdate }: DataTablePr
                       title="Click to view full goal, double-click to edit"
                     >
                       {renderCell(row, 'Goal', row.Goal)}
+                    </div>
+                  </td>
+                  <td className="px-2 py-3 sm:px-4 sm:py-4 text-xs sm:text-sm">
+                    <div
+                      className="editable-cell min-w-[100px] relative"
+                      onDoubleClick={() => handleCellDoubleClick(row.EnrollmentID, 'progress', row.progress ?? '')}
+                    >
+                      {renderCell(row, 'progress', row.progress ?? '')}
                     </div>
                   </td>
                 </tr>
