@@ -25,6 +25,7 @@ interface ClassData {
   hasRecording: boolean
   teamsLink: string | null
   status: 'present' | 'absent' | 'upcoming' | 'unknown'
+  attendeeCount: number | null
 }
 
 interface ClassesByDate {
@@ -562,6 +563,9 @@ export default function AllCohortClasses() {
                                 <span className="text-muted-foreground ml-1">
                                   {cls.mentorName.split(' ')[0]}
                                   {cls.isSwapped && ' (swap)'}
+                                  {cls.attendeeCount != null && (
+                                    <span className="text-muted-foreground/80"> · {cls.attendeeCount}</span>
+                                  )}
                                 </span>
                               </div>
                             ))}
@@ -683,6 +687,15 @@ export default function AllCohortClasses() {
                       <div className="flex items-center space-x-2">
                         <Video className="w-4 h-4 text-green-400" />
                         <span className="text-xs text-green-400">Recording available</span>
+                      </div>
+                    )}
+
+                    {cls.attendeeCount != null && (
+                      <div className="flex items-center space-x-2">
+                        <Users className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          {cls.attendeeCount} {cls.attendeeCount === 1 ? 'attendee' : 'attendees'}
+                        </span>
                       </div>
                     )}
                   </div>

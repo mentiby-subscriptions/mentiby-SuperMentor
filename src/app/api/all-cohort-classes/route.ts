@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getMeetingAttendeeCount } from '@/lib/teams-graph'
 
 // This endpoint fetches all classes from all cohorts with mentor information
 
@@ -181,7 +182,8 @@ export async function GET(request: Request) {
               isSwapped: cls.swapped_mentor_id !== null && cls.swapped_mentor_id !== undefined,
               hasRecording: cls.session_recording && cls.session_recording.trim() !== '',
               teamsLink: cls.teams_meeting_link,
-              status
+              status,
+              attendeeCount: null as number | null
             })
           }
         }
@@ -192,6 +194,25 @@ export async function GET(request: Request) {
     }
 
     console.log(`=== TOTAL: ${allClasses.length} classes fetched ===`)
+
+    // Fetch Teams attendee count for past classes that have a meeting link (in small parallel batches)
+    const pastWithLink = allClasses.filter(
+      (c: any) => c.date && c.date < todayStr && c.teamsLink && c.teamsLink.trim() !== ''
+    )
+    const BATCH = 5
+    for (let i = 0; i < pastWithLink.length; i += BATCH) {
+      const batch = pastWithLink.slice(i, i + BATCH)
+      await Promise.all(
+        batch.map(async (c: any) => {
+          try {
+            const count = await getMeetingAttendeeCount(c.teamsLink)
+            c.attendeeCount = count
+          } catch {
+            c.attendeeCount = null
+          }
+        })
+      )
+    }
 
     // Group classes by date for calendar view
     const classesByDate: Record<string, any[]> = {}
