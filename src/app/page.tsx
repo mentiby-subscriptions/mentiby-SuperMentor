@@ -15,6 +15,7 @@ import FeedbackTable from '@/components/FeedbackTable'
 import MentibyCallingAgent from '@/components/MentibyCallingAgent'
 import CohortInitiator from '@/components/CohortInitiator'
 import CohortScheduleEditor from '@/components/CohortScheduleEditor'
+import AllCohortClasses from '@/components/AllCohortClasses'
 import MentorAttendance from '@/components/MentorAttendance'
 import StudentOnboarding from '@/components/StudentOnboarding'
 
@@ -28,13 +29,42 @@ type FeedbackData = {
   SuggestionsToImprove: string
 }
 
+type TabType = 'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding'
+
+const VALID_TABS: TabType[] = ['table', 'charts', 'feedback', 'mbycallingagent', 'attendance', 'xp', 'records', 'cohort-initiator', 'cohort-schedule-editor', 'all-cohort-classes', 'mentor-attendance', 'student-onboarding']
+
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding'>('cohort-initiator')
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    // Initialize from localStorage on client side
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('activeTab')
+      if (saved && VALID_TABS.includes(saved as TabType)) {
+        return saved as TabType
+      }
+    }
+    return 'cohort-initiator'
+  })
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('sidebarCollapsed') === 'true'
+    }
+    return false
+  })
   const [onboardingData, setOnboardingData] = useState<OnboardingData[]>([])
   const [feedbackData, setFeedbackData] = useState<FeedbackData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
+  // Save active tab to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab)
+  }, [activeTab])
+
+  // Save sidebar collapsed state to localStorage
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', String(isSidebarCollapsed))
+  }, [isSidebarCollapsed])
 
   useEffect(() => {
     fetchData()
@@ -87,7 +117,7 @@ function AdminPanel() {
     }
   }
 
-  const handleTabChange = (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding') => {
+  const handleTabChange = (tab: TabType) => {
     setActiveTab(tab)
     setIsMobileMenuOpen(false) // Close mobile menu when tab changes
   }
@@ -140,6 +170,8 @@ function AdminPanel() {
         return <CohortInitiator />
       case 'cohort-schedule-editor':
         return <CohortScheduleEditor />
+      case 'all-cohort-classes':
+        return <AllCohortClasses />
       case 'mentor-attendance':
         return <MentorAttendance />
       case 'student-onboarding':
@@ -175,11 +207,13 @@ function AdminPanel() {
       <div className={`
         fixed lg:relative inset-y-0 left-0 z-40 lg:z-auto
         transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-        transition-transform duration-300 ease-in-out lg:transition-none
+        transition-all duration-300 ease-in-out
       `}>
         <Sidebar
           activeTab={activeTab}
           onTabChange={handleTabChange}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
       </div>
 

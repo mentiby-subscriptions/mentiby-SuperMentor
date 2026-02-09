@@ -1,16 +1,18 @@
 'use client'
 
-import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket, Edit3, UserCheck, GraduationCap } from 'lucide-react'
+import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket, Edit3, UserCheck, GraduationCap, CalendarDays, PanelLeftClose, PanelLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { useState, useEffect } from 'react'
 
 interface SidebarProps {
-  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding'
-  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'mentor-attendance' | 'student-onboarding') => void
+  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding'
+  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding') => void
+  isCollapsed?: boolean
+  onToggleCollapse?: () => void
 }
 
-export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export default function Sidebar({ activeTab, onTabChange, isCollapsed = false, onToggleCollapse }: SidebarProps) {
   const { user, signOut } = useAuth()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
@@ -57,6 +59,14 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       description: 'Edit existing cohort schedules',
       gradient: 'bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500',
       glow: 'shadow-lg shadow-blue-500/50'
+    },
+    {
+      id: 'all-cohort-classes' as const,
+      label: 'All Cohort Classes',
+      icon: CalendarDays,
+      description: 'Monthly calendar view of all classes',
+      gradient: 'bg-gradient-to-r from-teal-500 via-emerald-500 to-green-500',
+      glow: 'shadow-lg shadow-teal-500/50'
     },
     {
       id: 'student-onboarding' as const,
@@ -133,27 +143,58 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   ]
 
   return (
-    <div className="w-72 sm:w-80 bg-card/50 backdrop-blur-xl border-r border-border/50 h-screen flex flex-col">
+    <div className={cn(
+      "bg-card/50 backdrop-blur-xl border-r border-border/50 h-screen flex flex-col transition-all duration-300",
+      isCollapsed ? "w-20" : "w-72 sm:w-80"
+    )}>
       {/* Header */}
-      <div className="p-4 sm:p-6 border-b border-border/50">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/25">
-            <Users className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+      <div className={cn("border-b border-border/50", isCollapsed ? "p-3" : "p-4 sm:p-6")}>
+        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-between")}>
+          <div className={cn("flex items-center", isCollapsed ? "justify-center" : "space-x-3")}>
+            {isCollapsed ? (
+              /* Expand button replaces branding when collapsed */
+              onToggleCollapse && (
+                <button
+                  onClick={onToggleCollapse}
+                  className="w-12 h-12 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-center"
+                  title="Expand sidebar"
+                >
+                  <PanelLeft className="w-5 h-5 text-muted-foreground" />
+                </button>
+              )
+            ) : (
+              <>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/25 flex-shrink-0">
+                  <Users className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-bold">
+                    <span className="bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-500 bg-clip-text text-transparent">Menti</span>
+                    <span className="text-white">BY</span>
+                  </h1>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Super-Admin Dashboard</p>
+                </div>
+              </>
+            )}
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold">
-              <span className="bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-500 bg-clip-text text-transparent">Menti</span>
-              <span className="text-white">BY</span>
-            </h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">Super-Admin Dashboard</p>
-          </div>
+          
+          {/* Collapse Toggle Button */}
+          {onToggleCollapse && !isCollapsed && (
+            <button
+              onClick={onToggleCollapse}
+              className="p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-center"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="w-5 h-5 text-muted-foreground" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Navigation */}
       <div className="flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto scrollbar-hide p-3 sm:p-4">
-          <nav className="space-y-2 sm:space-y-3">
+        <div className={cn("h-full overflow-y-auto scrollbar-hide", isCollapsed ? "p-2" : "p-3 sm:p-4")}>
+          <nav className={cn("space-y-2", !isCollapsed && "sm:space-y-3")}>
             {menuItems.map((item) => {
               const Icon = item.icon
               const isActive = activeTab === item.id
@@ -162,35 +203,48 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                 <button
                   key={item.id}
                   onClick={() => onTabChange(item.id)}
+                  title={isCollapsed ? item.label : undefined}
                   className={cn(
-                    "w-full p-4 sm:p-5 rounded-xl sm:rounded-2xl text-left transition-all duration-300 group relative overflow-hidden",
+                    "w-full rounded-xl sm:rounded-2xl text-left transition-all duration-300 group relative overflow-hidden",
+                    isCollapsed ? "p-3 flex items-center justify-center" : "p-4 sm:p-5",
                     "hover:scale-[1.02] hover:shadow-2xl",
                     isActive
                       ? `${item.gradient} ${item.glow} text-white shadow-2xl scale-[1.02]`
                       : "bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/50"
                   )}
                 >
-                  <div className="flex items-center space-x-3 sm:space-x-4 relative z-10">
+                  {isCollapsed ? (
                     <div className={cn(
-                      "w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-300",
+                      "w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300",
                       isActive
                         ? "bg-white/20 backdrop-blur-sm"
                         : "bg-accent group-hover:bg-accent/70"
                     )}>
-                      <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <Icon className="w-5 h-5" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm sm:text-base truncate">{item.label}</div>
+                  ) : (
+                    <div className="flex items-center space-x-3 sm:space-x-4 relative z-10">
                       <div className={cn(
-                        "text-xs transition-colors truncate",
+                        "w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-300",
                         isActive
-                          ? "text-white/80"
-                          : "text-muted-foreground group-hover:text-foreground/70"
+                          ? "bg-white/20 backdrop-blur-sm"
+                          : "bg-accent group-hover:bg-accent/70"
                       )}>
-                        {item.description}
+                        <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm sm:text-base truncate">{item.label}</div>
+                        <div className={cn(
+                          "text-xs transition-colors truncate",
+                          isActive
+                            ? "text-white/80"
+                            : "text-muted-foreground group-hover:text-foreground/70"
+                        )}>
+                          {item.description}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Animated background for active state */}
                   {isActive && (
@@ -203,33 +257,34 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         </div>
       </div>
 
-      {/* User Info & Logout */}
-      <div className="p-3 sm:p-4 border-t border-border/50">
-        <div className="relative">
-          {/* User Profile Button */}
-          <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
-            className="w-full p-3 sm:p-4 bg-muted/30 hover:bg-muted/50 rounded-xl sm:rounded-2xl transition-all duration-300 group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg sm:rounded-xl flex items-center justify-center glow-purple">
-                <User className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-              </div>
-              <div className="flex-1 text-left min-w-0">
-                <div className="font-semibold text-sm sm:text-base text-foreground truncate" suppressHydrationWarning>
-                  {displayName}
+      {/* User Info & Logout - Hidden when collapsed */}
+      {!isCollapsed && (
+        <div className="p-3 sm:p-4 border-t border-border/50">
+          <div className="relative">
+            {/* User Profile Button */}
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="w-full p-3 sm:p-4 bg-muted/30 hover:bg-muted/50 rounded-xl sm:rounded-2xl transition-all duration-300 group"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg sm:rounded-xl flex items-center justify-center glow-purple">
+                  <User className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  Administrator
+                <div className="flex-1 text-left min-w-0">
+                  <div className="font-semibold text-sm sm:text-base text-foreground truncate" suppressHydrationWarning>
+                    {displayName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Administrator
+                  </div>
                 </div>
+                <ChevronUp className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
               </div>
-              <ChevronUp className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
-            </div>
-          </button>
+            </button>
 
-          {/* User Menu Dropdown */}
-          {showUserMenu && mounted && (
-            <div className="absolute bottom-full left-0 right-0 mb-2 bg-card/80 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl z-50">
+            {/* User Menu Dropdown */}
+            {showUserMenu && mounted && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-card/80 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl z-50">
               {/* User Info */}
               <div className="p-3 sm:p-4 border-b border-border/50">
                 <p className="text-sm font-medium text-foreground truncate" suppressHydrationWarning>
@@ -264,14 +319,15 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-center space-x-1 text-xs mt-2">
-          <span className="font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-            techSas
-          </span>
-          <span className="text-sm" style={{ lineHeight: 1 }}>❤️</span>
+          {/* Footer */}
+          <div className="flex items-center justify-center space-x-1 text-xs mt-2">
+            <span className="font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+              techSas
+            </span>
+            <span className="text-sm" style={{ lineHeight: 1 }}>❤️</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Click outside to close menu */}
       {showUserMenu && (
