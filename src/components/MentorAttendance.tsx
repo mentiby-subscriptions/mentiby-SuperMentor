@@ -19,7 +19,7 @@ interface MentorAttendanceData {
 interface MonthlyMentorData {
   mentor_id: number
   name: string
-  months: Record<string, { self: number; special: number }>
+  months: Record<string, { self: number; special: number; missed?: number }>
 }
 
 export default function MentorAttendance() {
@@ -447,6 +447,10 @@ export default function MentorAttendance() {
                   <div className="w-3 h-3 rounded-full bg-cyan-400" />
                   <span className="text-muted-foreground">Special Classes</span>
                 </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 rounded-full bg-red-400" />
+                  <span className="text-muted-foreground">Missed Classes</span>
+                </div>
               </div>
             </div>
 
@@ -496,7 +500,8 @@ export default function MentorAttendance() {
                                 const monthData = mentor.months[month]
                                 const selfCount = monthData?.self || 0
                                 const specialCount = monthData?.special || 0
-                                const hasData = selfCount > 0 || specialCount > 0
+                                const missedCount = monthData?.missed || 0
+                                const hasData = selfCount > 0 || specialCount > 0 || missedCount > 0
 
                                 return (
                                   <td key={month} className="px-4 py-3 text-center">
@@ -507,6 +512,12 @@ export default function MentorAttendance() {
                                           <>
                                             <span className="text-muted-foreground">+</span>
                                             <span className="text-cyan-400 font-bold text-lg">{specialCount}</span>
+                                          </>
+                                        )}
+                                        {missedCount > 0 && (
+                                          <>
+                                            <span className="text-muted-foreground">/</span>
+                                            <span className="text-red-400 font-bold text-lg">{missedCount}</span>
                                           </>
                                         )}
                                       </div>

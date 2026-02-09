@@ -66,13 +66,18 @@ export async function POST() {
       let absentCount = 0
       let specialAttendance = 0  // Classes taken on behalf of other mentors
 
+      // Get today's date for comparison (to identify past classes)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const todayStr = today.toISOString().split('T')[0]
+
       // Search all cohort tables for this mentor's assigned classes
       for (const tableName of cohortTables) {
         try {
           // Get all classes assigned to this mentor that are completed (have session_recording)
           const { data: classes, error: classesError } = await supabaseB
             .from(tableName)
-            .select('id, mentor_id, swapped_mentor_id, session_recording')
+            .select('id, date, mentor_id, swapped_mentor_id, session_recording')
             .eq('mentor_id', mentorId)
             .not('session_recording', 'is', null)
             .neq('session_recording', '')
@@ -97,6 +102,32 @@ export async function POST() {
                 // No swap = original mentor was present
                 presentCount++
                 console.log(`    Class ${cls.id}: PRESENT`)
+              }
+            }
+          }
+
+          // NEW: Get past classes with NO recording - mentor did nothing (absent)
+          // These are classes assigned to this mentor, date is in the past, no recording, no swap
+          const { data: missedClasses, error: missedError } = await supabaseB
+            .from(tableName)
+            .select('id, date, mentor_id, swapped_mentor_id, session_recording')
+            .eq('mentor_id', mentorId)
+            .lt('date', todayStr)  // Only past classes
+            .or('session_recording.is.null,session_recording.eq.')  // No recording
+
+          if (!missedError && missedClasses && missedClasses.length > 0) {
+            // Filter out classes that were swapped (those are handled differently)
+            const trulyMissedClasses = missedClasses.filter(cls => 
+              cls.swapped_mentor_id === null || cls.swapped_mentor_id === undefined
+            )
+            
+            if (trulyMissedClasses.length > 0) {
+              console.log(`  Found ${trulyMissedClasses.length} MISSED classes in ${tableName} (no recording, no swap)`)
+              
+              for (const cls of trulyMissedClasses) {
+                totalCompletedClasses++
+                absentCount++
+                console.log(`    Class ${cls.id} (date: ${cls.date}): ABSENT (no action taken - class missed)`)
               }
             }
           }
@@ -226,12 +257,17 @@ export async function GET(request: Request) {
       const monthlyData: any[] = []
       const allMonths = new Set<string>()
 
+      // Get today's date for comparison (to identify past classes)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const todayStr = today.toISOString().split('T')[0]
+
       for (const mentor of mentors) {
         const mentorId = mentor.mentor_id
         const mentorName = mentor.Name || 'Unknown'
 
-        // Monthly breakdown: { 'Jan': { self: 2, special: 1 }, 'Feb': { self: 3, special: 0 } }
-        const monthBreakdown: Record<string, { self: number; special: number }> = {}
+        // Monthly breakdown: { 'Jan': { self: 2, special: 1, missed: 0 }, 'Feb': { self: 3, special: 0, missed: 1 } }
+        const monthBreakdown: Record<string, { self: number; special: number; missed: number }> = {}
 
         for (const tableName of cohortTables) {
           try {
@@ -254,14 +290,45 @@ export async function GET(request: Request) {
                 allMonths.add(monthKey)
 
                 if (!monthBreakdown[monthKey]) {
-                  monthBreakdown[monthKey] = { self: 0, special: 0 }
+                  monthBreakdown[monthKey] = { self: 0, special: 0, missed: 0 }
                 }
 
                 // If no swap, mentor was present (self)
                 if (cls.swapped_mentor_id === null || cls.swapped_mentor_id === undefined) {
                   monthBreakdown[monthKey].self++
                 }
-                // If swapped, this mentor was absent for this class (don't count)
+                // If swapped, this mentor was absent for this class (don't count in self)
+              }
+            }
+
+            // Check for missed classes (past classes with no recording and no swap)
+            const { data: missedClasses, error: missedError } = await supabaseB
+              .from(tableName)
+              .select('id, date, mentor_id, swapped_mentor_id, session_recording')
+              .eq('mentor_id', mentorId)
+              .lt('date', todayStr)  // Only past classes
+              .gte('date', `${year}-01-01`)
+              .lte('date', `${year}-12-31`)
+              .or('session_recording.is.null,session_recording.eq.')  // No recording
+
+            if (!missedError && missedClasses) {
+              // Filter out classes that were swapped (those are handled differently)
+              const trulyMissedClasses = missedClasses.filter(cls => 
+                cls.swapped_mentor_id === null || cls.swapped_mentor_id === undefined
+              )
+
+              for (const cls of trulyMissedClasses) {
+                if (!cls.date) continue
+                
+                const date = new Date(cls.date + 'T12:00:00')
+                const monthKey = date.toLocaleString('en-US', { month: 'short' })
+                allMonths.add(monthKey)
+
+                if (!monthBreakdown[monthKey]) {
+                  monthBreakdown[monthKey] = { self: 0, special: 0, missed: 0 }
+                }
+
+                monthBreakdown[monthKey].missed++
               }
             }
 
@@ -284,7 +351,7 @@ export async function GET(request: Request) {
                 allMonths.add(monthKey)
 
                 if (!monthBreakdown[monthKey]) {
-                  monthBreakdown[monthKey] = { self: 0, special: 0 }
+                  monthBreakdown[monthKey] = { self: 0, special: 0, missed: 0 }
                 }
 
                 monthBreakdown[monthKey].special++
