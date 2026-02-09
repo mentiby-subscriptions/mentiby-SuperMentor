@@ -529,7 +529,8 @@ export default function AllCohortClasses() {
                   <div
                     key={index}
                     className={cn(
-                      "border-b border-r border-border/30 p-2 min-h-[100px] transition-all cursor-pointer",
+                      // Light border only while clicking (active), not persistent
+                      "border-b border-r border-border/30 p-2 min-h-[100px] transition-all cursor-pointer active:ring-1 active:ring-white/25",
                       dayInfo.isCurrentMonth ? "bg-transparent hover:bg-muted/30" : "bg-muted/10",
                       isToday && "bg-yellow-500/20",
                       isSelected && "bg-emerald-500/20"
