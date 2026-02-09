@@ -289,6 +289,7 @@ async function createTeamsMeeting(
       isDialInBypassEnabled: true
     },
     autoAdmittedUsers: 'everyone',
+    allowedPresenters: 'organizer',
     recordAutomatically: true,
     isEntryExitAnnounced: false,
     allowMeetingChat: 'enabled',

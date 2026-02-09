@@ -80,6 +80,7 @@ async function createTeamsMeetingWithChat(
       isDialInBypassEnabled: true
     },
     autoAdmittedUsers: 'everyone',
+    allowedPresenters: 'organizer',
     recordAutomatically: true,
     isEntryExitAnnounced: false,
     allowMeetingChat: 'enabled',
@@ -209,6 +210,7 @@ async function createOnlineMeetingFallback(
       isDialInBypassEnabled: true 
     },
     autoAdmittedUsers: 'everyone',
+    allowedPresenters: 'organizer',
     recordAutomatically: true,
     isEntryExitAnnounced: false,
     allowMeetingChat: 'enabled',

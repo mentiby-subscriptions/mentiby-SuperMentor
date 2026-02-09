@@ -4,14 +4,6 @@ import { NextResponse } from 'next/server'
 const MS_GRAPH_AUTH_URL = 'https://login.microsoftonline.com'
 const MS_GRAPH_API_URL = 'https://graph.microsoft.com/v1.0'
 
-interface MeetingDetails {
-  subject: string
-  startDateTime: string // ISO format
-  endDateTime: string // ISO format
-  timeZone?: string
-  attendees?: string[] // Email addresses of attendees
-}
-
 // Get access token using client credentials flow
 async function getAccessToken(): Promise<string> {
   const tenantId = process.env.MS_TENANT_ID
@@ -48,84 +40,38 @@ async function getAccessToken(): Promise<string> {
   return data.access_token
 }
 
-// Create a calendar event with online meeting (creates chat automatically)
-async function createCalendarEventWithMeeting(
+// Create Teams meeting with full settings (3-step approach)
+// Step 1: Create standalone online meeting with lobby bypass + auto-recording + organizer-only presenter
+// Step 2: PATCH to disable attendee mic/camera
+// Step 3: Create calendar event linked to the meeting
+async function createTeamsMeeting(
   accessToken: string,
   userId: string,
-  meeting: MeetingDetails
-): Promise<{ joinUrl: string; meetingId: string; eventId: string }> {
-  const url = `${MS_GRAPH_API_URL}/users/${userId}/events`
+  subject: string,
+  startDateTime: string,
+  endDateTime: string,
+  timeZone: string = 'Asia/Kolkata',
+  attendeeEmails: string[] = []
+): Promise<{ joinUrl: string; meetingId: string; eventId: string | null }> {
 
-  // Build attendees list
-  const attendeesList = (meeting.attendees || []).map(email => ({
-    emailAddress: { address: email },
-    type: 'required'
-  }))
-
-  const eventBody = {
-    subject: meeting.subject,
-    start: {
-      dateTime: meeting.startDateTime,
-      timeZone: meeting.timeZone || 'Asia/Kolkata'
-    },
-    end: {
-      dateTime: meeting.endDateTime,
-      timeZone: meeting.timeZone || 'Asia/Kolkata'
-    },
-    // This is the key - enables Teams meeting with chat
-    isOnlineMeeting: true,
-    onlineMeetingProvider: 'teamsForBusiness',
-    // Attendees will get calendar invite and be part of the chat
-    attendees: attendeesList,
-    // Meeting settings
-    allowNewTimeProposals: false,
-    responseRequested: false
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(eventBody)
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    console.error('Calendar event creation error:', error)
-    throw new Error(`Failed to create calendar event: ${error}`)
-  }
-
-  const data = await response.json()
-  
-  return {
-    joinUrl: data.onlineMeeting?.joinUrl || '',
-    meetingId: data.onlineMeeting?.id || data.id,
-    eventId: data.id
-  }
-}
-
-// Legacy: Create standalone online meeting (no chat)
-async function createOnlineMeeting(
-  accessToken: string,
-  userId: string,
-  meeting: MeetingDetails
-): Promise<{ joinUrl: string; meetingId: string }> {
-  const url = `${MS_GRAPH_API_URL}/users/${userId}/onlineMeetings`
-
+  // STEP 1: Create standalone online meeting with lobby bypass + auto-recording
   const meetingBody = {
-    startDateTime: meeting.startDateTime,
-    endDateTime: meeting.endDateTime,
-    subject: meeting.subject,
+    subject,
+    startDateTime: new Date(startDateTime).toISOString(),
+    endDateTime: new Date(endDateTime).toISOString(),
     lobbyBypassSettings: {
       scope: 'everyone',
       isDialInBypassEnabled: true
     },
-    allowedPresenters: 'everyone'
+    autoAdmittedUsers: 'everyone',
+    allowedPresenters: 'organizer',
+    recordAutomatically: true,
+    isEntryExitAnnounced: false,
+    allowMeetingChat: 'enabled',
+    allowTeamworkReactions: true
   }
 
-  const response = await fetch(url, {
+  const meetingResponse = await fetch(`${MS_GRAPH_API_URL}/users/${userId}/onlineMeetings`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -134,15 +80,103 @@ async function createOnlineMeeting(
     body: JSON.stringify(meetingBody)
   })
 
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Failed to create meeting: ${error}`)
+  if (!meetingResponse.ok) {
+    const error = await meetingResponse.text()
+    console.error('Online meeting creation error:', error)
+    throw new Error(`Failed to create online meeting: ${error}`)
   }
 
-  const data = await response.json()
+  const meetingData = await meetingResponse.json()
+  const joinUrl = meetingData.joinUrl || meetingData.joinWebUrl
+  const onlineMeetingId = meetingData.id
+
+  if (!joinUrl) {
+    console.error('No join URL in response:', JSON.stringify(meetingData, null, 2))
+    throw new Error('Meeting created but no join URL returned')
+  }
+
+  console.log(`  Step 1: Online meeting created with lobby bypass + auto-recording + organizer-only presenter`)
+
+  // STEP 2: PATCH to disable attendee mic/camera
+  try {
+    const patchResponse = await fetch(`${MS_GRAPH_API_URL}/users/${userId}/onlineMeetings/${onlineMeetingId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        allowAttendeeToEnableMic: false,
+        allowAttendeeToEnableCamera: false
+      })
+    })
+
+    if (patchResponse.ok) {
+      console.log(`  Step 2: Mic/camera restrictions applied`)
+    } else {
+      console.log(`  Step 2: Warning - mic/camera patch failed: ${await patchResponse.text()}`)
+    }
+  } catch (patchError) {
+    console.log(`  Step 2: Warning - patch error:`, patchError)
+  }
+
+  // STEP 3: Create calendar event linked to the meeting
+  const attendees = attendeeEmails
+    .filter(email => email && email.trim())
+    .map(email => ({
+      emailAddress: { address: email.trim() },
+      type: 'required'
+    }))
+
+  const eventBody = {
+    subject,
+    start: {
+      dateTime: startDateTime,
+      timeZone
+    },
+    end: {
+      dateTime: endDateTime,
+      timeZone
+    },
+    isOnlineMeeting: true,
+    onlineMeetingProvider: 'teamsForBusiness',
+    onlineMeeting: {
+      joinUrl: joinUrl
+    },
+    attendees,
+    responseRequested: false,
+    allowNewTimeProposals: false
+  }
+
+  let eventId: string | null = null
+
+  try {
+    const eventResponse = await fetch(`${MS_GRAPH_API_URL}/users/${userId}/events`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(eventBody)
+    })
+
+    if (eventResponse.ok) {
+      const eventData = await eventResponse.json()
+      eventId = eventData.id
+      console.log(`  Step 3: Calendar event created with ${attendees.length} attendees`)
+    } else {
+      console.log(`  Step 3: Warning - calendar event failed: ${await eventResponse.text()}`)
+    }
+  } catch (eventError) {
+    console.log(`  Step 3: Warning - calendar event error:`, eventError)
+  }
+
+  console.log(`  ✅ Meeting ready: ${joinUrl.substring(0, 50)}...`)
+
   return {
-    joinUrl: data.joinWebUrl,
-    meetingId: data.id
+    joinUrl,
+    meetingId: onlineMeetingId,
+    eventId
   }
 }
 
@@ -154,8 +188,7 @@ export async function POST(request: Request) {
       startDateTime, 
       endDateTime, 
       timeZone = 'Asia/Kolkata',
-      attendees = [],
-      useCalendarEvent = true // Default to calendar event (creates chat)
+      attendees = []
     } = body
 
     if (!subject || !startDateTime || !endDateTime) {
@@ -177,40 +210,28 @@ export async function POST(request: Request) {
       )
     }
 
-    let result
-
-    if (useCalendarEvent) {
-      // Create calendar event with Teams meeting (creates chat)
-      result = await createCalendarEventWithMeeting(accessToken, organizerUserId, {
-        subject,
-        startDateTime,
-        endDateTime,
-        timeZone,
-        attendees
-      })
-    } else {
-      // Legacy: Create standalone meeting (no chat)
-      const meeting = await createOnlineMeeting(accessToken, organizerUserId, {
-        subject,
-        startDateTime,
-        endDateTime,
-        timeZone
-      })
-      result = { ...meeting, eventId: null }
-    }
+    const result = await createTeamsMeeting(
+      accessToken,
+      organizerUserId,
+      subject,
+      startDateTime,
+      endDateTime,
+      timeZone,
+      attendees
+    )
 
     return NextResponse.json({
       success: true,
       joinUrl: result.joinUrl,
       meetingId: result.meetingId,
-      eventId: result.eventId || null,
-      hasChat: useCalendarEvent // Indicates if meeting has associated chat
+      eventId: result.eventId || null
     })
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to create Teams meeting'
     console.error('Error creating Teams meeting:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to create Teams meeting' },
+      { error: message },
       { status: 500 }
     )
   }
