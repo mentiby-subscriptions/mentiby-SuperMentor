@@ -54,6 +54,7 @@ export async function GET(request: Request) {
 
     // Step 3: Fetch all classes from all cohort tables
     const allClasses: any[] = []
+    const allCohorts: { table: string; name: string }[] = []
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const todayStr = today.toISOString().split('T')[0]
@@ -103,6 +104,12 @@ export async function GET(request: Request) {
         const formattedNumber = numberPart.replace(/_/g, '.')
         
         const cohortName = formattedNumber ? `${type} ${formattedNumber}` : type
+
+        // Track all cohorts regardless of whether they have classes in this month
+        allCohorts.push({
+          table: tableName,
+          name: cohortName
+        })
 
         const { data: classes, error: classesError } = await supabaseB
           .from(tableName)
@@ -203,6 +210,7 @@ export async function GET(request: Request) {
       month: month || null,
       totalClasses: allClasses.length,
       cohorts: cohortTables.length,
+      allCohorts,
       classesByDate,
       allClasses
     })

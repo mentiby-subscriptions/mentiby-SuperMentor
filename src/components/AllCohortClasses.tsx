@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, RefreshCw, Users, BookOpen, Clock, MapPin, Video, AlertTriangle, CheckCircle, Calendar as CalendarIcon } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { CalendarDays, ChevronLeft, ChevronRight, RefreshCw, Users, BookOpen, Clock, Video, AlertTriangle, CheckCircle, Calendar as CalendarIcon, Filter, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface ClassData {
@@ -46,6 +46,12 @@ export default function AllCohortClasses() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [totalCohorts, setTotalCohorts] = useState(0)
+  const [allCohorts, setAllCohorts] = useState<string[]>([])
+  const [allMentors, setAllMentors] = useState<{ id: number; name: string }[]>([])
+
+  // Filter states
+  const [selectedCohort, setSelectedCohort] = useState<string>('all')
+  const [selectedMentor, setSelectedMentor] = useState<string>('all')
 
   // Stats
   const [stats, setStats] = useState({
@@ -54,6 +60,77 @@ export default function AllCohortClasses() {
     absent: 0,
     upcoming: 0
   })
+
+  // Load full mentor list once (independent of month)
+  useEffect(() => {
+    const fetchMentors = async () => {
+      try {
+        const res = await fetch('/api/mentors')
+        const data = await res.json()
+        if (data.mentors && Array.isArray(data.mentors)) {
+          setAllMentors(data.mentors)
+        }
+      } catch (err) {
+        // Silent fail – we'll fall back to mentors from classes
+        console.error('Failed to load mentors for filter dropdown', err)
+      }
+    }
+    fetchMentors()
+  }, [])
+
+  // Extract unique cohorts and mentors for filter dropdowns
+  const uniqueCohorts = useMemo(() => {
+    // Prefer full cohort list from API so dropdown always shows all cohorts
+    if (allCohorts.length > 0) {
+      return allCohorts
+    }
+    const cohorts = [...new Set(allClasses.map(c => c.cohort))].sort()
+    return cohorts
+  }, [allCohorts, allClasses])
+
+  const uniqueMentors = useMemo(() => {
+    // Prefer full mentor list from /api/mentors so dropdown always shows all mentors,
+    // even if they don't have classes in the current month
+    if (allMentors.length > 0) {
+      return allMentors.map(m => m.name)
+    }
+    // Fallback to just mentors present in classes if API didn't load
+    const mentors = [...new Set(allClasses.map(c => c.mentorName).filter(m => m !== 'Unassigned'))].sort()
+    return mentors
+  }, [allMentors, allClasses])
+
+  // Filtered classes based on selected filters
+  const filteredClasses = useMemo(() => {
+    return allClasses.filter(cls => {
+      const cohortMatch = selectedCohort === 'all' || cls.cohort === selectedCohort
+      const mentorMatch = selectedMentor === 'all' || cls.mentorName === selectedMentor
+      return cohortMatch && mentorMatch
+    })
+  }, [allClasses, selectedCohort, selectedMentor])
+
+  // Filtered classes grouped by date
+  const filteredClassesByDate = useMemo(() => {
+    const grouped: ClassesByDate = {}
+    for (const cls of filteredClasses) {
+      if (cls.date) {
+        if (!grouped[cls.date]) {
+          grouped[cls.date] = []
+        }
+        grouped[cls.date].push(cls)
+      }
+    }
+    return grouped
+  }, [filteredClasses])
+
+  // Filtered stats
+  const filteredStats = useMemo(() => {
+    return {
+      total: filteredClasses.length,
+      present: filteredClasses.filter(c => c.status === 'present').length,
+      absent: filteredClasses.filter(c => c.status === 'absent').length,
+      upcoming: filteredClasses.filter(c => c.status === 'upcoming').length
+    }
+  }, [filteredClasses])
 
   useEffect(() => {
     fetchClasses()
@@ -74,6 +151,12 @@ export default function AllCohortClasses() {
         setClassesByDate(result.classesByDate || {})
         setAllClasses(result.allClasses || [])
         setTotalCohorts(result.cohorts || 0)
+
+        // Load full cohort list (names) if provided
+        if (Array.isArray(result.allCohorts)) {
+          const cohortNames = result.allCohorts.map((c: { name: string }) => c.name)
+          setAllCohorts(cohortNames)
+        }
 
         // Calculate stats
         const classes = result.allClasses || []
@@ -129,7 +212,11 @@ export default function AllCohortClasses() {
     // Add days of current month
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day)
-      const dateStr = date.toISOString().split('T')[0]
+      // Use local date parts to avoid timezone shifting (IST, etc.)
+      const y = date.getFullYear()
+      const m = String(date.getMonth() + 1).padStart(2, '0')
+      const d = String(date.getDate()).padStart(2, '0')
+      const dateStr = `${y}-${m}-${d}`
       days.push({ date, dateStr, isCurrentMonth: true })
     }
     
@@ -137,13 +224,23 @@ export default function AllCohortClasses() {
   }
 
   const calendarDays = generateCalendarDays()
-  const today = new Date().toISOString().split('T')[0]
+  // Today string in local time, matching calendarDate generation
+  const todayDate = new Date()
+  const today = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`
 
-  // Get classes for selected date
-  const selectedClasses = selectedDate ? (classesByDate[selectedDate] || []) : []
+  // Get classes for selected date (filtered)
+  const selectedClasses = selectedDate ? (filteredClassesByDate[selectedDate] || []) : []
 
-  // Get status color
-  const getStatusColor = (status: string) => {
+  // Get status color (dot)
+  const getStatusColor = (status: string, isSwapped: boolean = false, sessionType?: string | null) => {
+    // Contests are always orange regardless of time or swap
+    if (sessionType === 'contest') {
+      return 'bg-orange-500'
+    }
+    // Swapped sessions are purple
+    if (isSwapped) {
+      return 'bg-purple-500'
+    }
     switch (status) {
       case 'present':
         return 'bg-green-500'
@@ -156,7 +253,16 @@ export default function AllCohortClasses() {
     }
   }
 
-  const getStatusBgColor = (status: string) => {
+  // Get background + border color for pills/cards
+  const getStatusBgColor = (status: string, isSwapped: boolean = false, sessionType?: string | null) => {
+    // Contests are always orange
+    if (sessionType === 'contest') {
+      return 'bg-orange-500/10 border-orange-500/40 hover:bg-orange-500/20'
+    }
+    // Swapped sessions are purple
+    if (isSwapped) {
+      return 'bg-purple-500/10 border-purple-500/40 hover:bg-purple-500/20'
+    }
     switch (status) {
       case 'present':
         return 'bg-green-500/10 border-green-500/30 hover:bg-green-500/20'
@@ -169,7 +275,14 @@ export default function AllCohortClasses() {
     }
   }
 
-  const getStatusTextColor = (status: string) => {
+  // Text color for status pill
+  const getStatusTextColor = (status: string, isSwapped: boolean = false, sessionType?: string | null) => {
+    if (sessionType === 'contest') {
+      return 'text-orange-400'
+    }
+    if (isSwapped) {
+      return 'text-purple-400'
+    }
     switch (status) {
       case 'present':
         return 'text-green-400'
@@ -252,14 +365,14 @@ export default function AllCohortClasses() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div className="bg-card/30 backdrop-blur-xl border border-border/50 rounded-xl p-4">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
               <CalendarIcon className="w-5 h-5 text-purple-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">{stats.total}</p>
+              <p className="text-2xl font-bold text-foreground">{filteredStats.total}</p>
               <p className="text-xs text-muted-foreground">Total Classes</p>
             </div>
           </div>
@@ -271,7 +384,7 @@ export default function AllCohortClasses() {
               <CheckCircle className="w-5 h-5 text-green-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-green-400">{stats.present}</p>
+              <p className="text-2xl font-bold text-green-400">{filteredStats.present}</p>
               <p className="text-xs text-muted-foreground">Present</p>
             </div>
           </div>
@@ -283,7 +396,7 @@ export default function AllCohortClasses() {
               <AlertTriangle className="w-5 h-5 text-red-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-red-400">{stats.absent}</p>
+              <p className="text-2xl font-bold text-red-400">{filteredStats.absent}</p>
               <p className="text-xs text-muted-foreground">Absent</p>
             </div>
           </div>
@@ -295,11 +408,68 @@ export default function AllCohortClasses() {
               <Clock className="w-5 h-5 text-blue-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-blue-400">{stats.upcoming}</p>
+              <p className="text-2xl font-bold text-blue-400">{filteredStats.upcoming}</p>
               <p className="text-xs text-muted-foreground">Upcoming</p>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Filters:</span>
+        </div>
+        
+        {/* Cohort Filter */}
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedCohort}
+            onChange={(e) => setSelectedCohort(e.target.value)}
+            className="px-3 py-1.5 bg-card/50 border border-border/50 rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+          >
+            <option value="all">All Cohorts</option>
+            {uniqueCohorts.map((cohort) => (
+              <option key={cohort} value={cohort}>{cohort}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Mentor Filter */}
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedMentor}
+            onChange={(e) => setSelectedMentor(e.target.value)}
+            className="px-3 py-1.5 bg-card/50 border border-border/50 rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+          >
+            <option value="all">All Mentors</option>
+            {uniqueMentors.map((mentor) => (
+              <option key={mentor} value={mentor}>{mentor}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Clear Filters */}
+        {(selectedCohort !== 'all' || selectedMentor !== 'all') && (
+          <button
+            onClick={() => {
+              setSelectedCohort('all')
+              setSelectedMentor('all')
+            }}
+            className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm flex items-center gap-1 transition-colors"
+          >
+            <X className="w-3 h-3" />
+            Clear
+          </button>
+        )}
+
+        {/* Active filter indicator */}
+        {(selectedCohort !== 'all' || selectedMentor !== 'all') && (
+          <span className="text-xs text-muted-foreground">
+            Showing {filteredStats.total} of {stats.total} classes
+          </span>
+        )}
       </div>
 
       {/* Main Content */}
@@ -351,7 +521,7 @@ export default function AllCohortClasses() {
           <div className="flex-1 overflow-auto">
             <div className="grid grid-cols-7 h-full">
               {calendarDays.map((dayInfo, index) => {
-                const dayClasses = dayInfo.dateStr ? (classesByDate[dayInfo.dateStr] || []) : []
+                const dayClasses = dayInfo.dateStr ? (filteredClassesByDate[dayInfo.dateStr] || []) : []
                 const isToday = dayInfo.dateStr === today
                 const isSelected = dayInfo.dateStr === selectedDate
 
@@ -383,12 +553,15 @@ export default function AllCohortClasses() {
                                 key={i}
                                 className={cn(
                                   "text-[10px] px-1.5 py-0.5 rounded truncate border",
-                                  getStatusBgColor(cls.status)
+                                  getStatusBgColor(cls.status, cls.isSwapped, cls.sessionType)
                                 )}
                                 title={`${cls.cohort}: ${cls.subjectName || cls.sessionType} - ${cls.mentorName}`}
                               >
                                 <span className="font-medium">{cls.cohort}</span>
-                                <span className="text-muted-foreground ml-1">{cls.mentorName.split(' ')[0]}</span>
+                                <span className="text-muted-foreground ml-1">
+                                  {cls.mentorName.split(' ')[0]}
+                                  {cls.isSwapped && ' (swap)'}
+                                </span>
                               </div>
                             ))}
                             
@@ -434,7 +607,7 @@ export default function AllCohortClasses() {
                     key={`${cls.cohortTable}-${cls.id}`}
                     className={cn(
                       "p-4 rounded-xl border transition-all",
-                      getStatusBgColor(cls.status)
+                      getStatusBgColor(cls.status, cls.isSwapped, cls.sessionType)
                     )}
                   >
                     {/* Header */}
@@ -444,8 +617,8 @@ export default function AllCohortClasses() {
                         <div className="flex items-center space-x-2 mt-1">
                           <span className={cn(
                             "text-xs font-medium px-2 py-0.5 rounded-full",
-                            getStatusBgColor(cls.status),
-                            getStatusTextColor(cls.status)
+                            getStatusBgColor(cls.status, cls.isSwapped, cls.sessionType),
+                            getStatusTextColor(cls.status, cls.isSwapped, cls.sessionType)
                           )}>
                             {cls.status.charAt(0).toUpperCase() + cls.status.slice(1)}
                           </span>
@@ -456,7 +629,7 @@ export default function AllCohortClasses() {
                           )}
                         </div>
                       </div>
-                      <div className={cn("w-3 h-3 rounded-full", getStatusColor(cls.status))} />
+                      <div className={cn("w-3 h-3 rounded-full", getStatusColor(cls.status, cls.isSwapped, cls.sessionType))} />
                     </div>
 
                     {/* Session Type */}
