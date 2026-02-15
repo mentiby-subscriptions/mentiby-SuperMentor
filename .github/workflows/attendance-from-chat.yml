@@ -1,0 +1,19 @@
+# Run attendance-from-chat daily at 2:00 PM IST (08:30 UTC)
+# Requires GitHub repo secrets: CRON_SECRET (same value as Vercel CRON_SECRET), APP_URL (e.g. https://your-app.vercel.app)
+
+name: Attendance from chat (daily 2pm IST)
+
+on:
+  schedule:
+    - cron: '30 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call attendance-from-chat
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/attendance/from-chat"
