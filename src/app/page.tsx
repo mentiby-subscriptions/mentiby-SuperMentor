@@ -18,6 +18,7 @@ import CohortScheduleEditor from '@/components/CohortScheduleEditor'
 import AllCohortClasses from '@/components/AllCohortClasses'
 import MentorAttendance from '@/components/MentorAttendance'
 import StudentOnboarding from '@/components/StudentOnboarding'
+import MentorInfo from '@/components/MentorInfo'
 
 // Temporary local type definition for FeedbackData
 type FeedbackData = {
@@ -29,9 +30,9 @@ type FeedbackData = {
   SuggestionsToImprove: string
 }
 
-type TabType = 'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding'
+type TabType = 'table' | 'charts' | 'feedback'| 'mbycallingagent' | 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding' | 'mentor-details'
 
-const VALID_TABS: TabType[] = ['table', 'charts', 'feedback', 'mbycallingagent', 'attendance', 'xp', 'records', 'cohort-initiator', 'cohort-schedule-editor', 'all-cohort-classes', 'mentor-attendance', 'student-onboarding']
+const VALID_TABS: TabType[] = ['table', 'charts', 'feedback', 'mbycallingagent', 'attendance', 'xp', 'records', 'cohort-initiator', 'cohort-schedule-editor', 'all-cohort-classes', 'mentor-attendance', 'student-onboarding', 'mentor-details']
 
 function AdminPanel() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
@@ -176,6 +177,8 @@ function AdminPanel() {
         return <MentorAttendance />
       case 'student-onboarding':
         return <StudentOnboarding />
+      case 'mentor-details':
+        return <MentorInfo />
       default:
         return <DataTable data={onboardingData} isLoading={isLoading} onDataUpdate={fetchData} />
     }

@@ -1,13 +1,13 @@
 'use client'
 
-import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket, Edit3, UserCheck, GraduationCap, CalendarDays, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { Database, PieChart, Users, LogOut, User, ChevronUp, Upload, Trophy, ClipboardList, MessageSquare, Rocket, Edit3, UserCheck, GraduationCap, CalendarDays, PanelLeftClose, PanelLeft, UserCog } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { useState, useEffect } from 'react'
 
 interface SidebarProps {
-  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding'
-  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding') => void
+  activeTab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding' | 'mentor-details'
+  onTabChange: (tab: 'table' | 'charts' | 'feedback' | 'mbycallingagent'| 'attendance' | 'xp' | 'records' | 'cohort-initiator' | 'cohort-schedule-editor' | 'all-cohort-classes' | 'mentor-attendance' | 'student-onboarding' | 'mentor-details') => void
   isCollapsed?: boolean
   onToggleCollapse?: () => void
 }
@@ -91,6 +91,14 @@ export default function Sidebar({ activeTab, onTabChange, isCollapsed = false, o
       description: 'View student attendance stats',
       gradient: 'bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500',
       glow: 'shadow-lg shadow-purple-500/50'
+    },
+    {
+      id: 'mentor-details' as const,
+      label: 'Mentor Details',
+      icon: UserCog,
+      description: 'View and edit mentor info',
+      gradient: 'bg-gradient-to-r from-pink-500 via-rose-500 to-red-500',
+      glow: 'shadow-lg shadow-pink-500/50'
     },
     {
       id: 'mentor-attendance' as const,
