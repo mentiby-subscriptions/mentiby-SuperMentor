@@ -422,6 +422,14 @@ function findRecordingForSession(
   cohortType?: string,
   cohortNumber?: string
 ): OneDriveRecording | null {
+  const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const normalizeForMatch = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
   // Session date in multiple formats for matching
   const dateYYYYMMDD = sessionDate.replace(/-/g, '') // 20260120
   const dateParts = sessionDate.split('-') // [2026, 01, 20]
@@ -445,6 +453,40 @@ function findRecordingForSession(
   }
   
   console.log(`    Cohort: ${cohortTypeFromSubject} ${cohortNumberFromSubject}`)
+
+  // Expected meeting title template:
+  // "Cohort {Type} {Number} - {subject_name}"
+  // Primary pass tries to match this exact naming pattern first.
+  const subjectNameFromMeeting = meetingSubject
+    .split(' - ')
+    .slice(1)
+    .join(' - ')
+    .trim()
+  const expectedTemplateName = (cohortTypeFromSubject && cohortNumberFromSubject && subjectNameFromMeeting)
+    ? `cohort ${cohortTypeFromSubject} ${cohortNumberFromSubject} - ${subjectNameFromMeeting}`
+    : ''
+  const normalizedExpectedTemplateName = expectedTemplateName ? normalizeForMatch(expectedTemplateName) : ''
+
+  if (normalizedExpectedTemplateName) {
+    for (const recording of recordings) {
+      const normalizedName = normalizeForMatch(recording.name)
+      const hasDate = recording.name.includes(dateYYYYMMDD) ||
+                      recording.name.includes(dateDDMMYYYY) ||
+                      recording.name.includes(dateDisplayFormat) ||
+                      recording.name.includes(dateDDMMYY)
+      const createdDate = recording.createdDateTime?.split('T')[0] || ''
+      const createdDateMatches = createdDate === sessionDate
+
+      if (!hasDate && !createdDateMatches) continue
+
+      if (normalizedName.includes(normalizedExpectedTemplateName)) {
+        console.log(`    ✓ Exact template match: ${recording.name}`)
+        console.log(`      Matched template: ${expectedTemplateName}`)
+        console.log(`      Date match: ${hasDate ? 'in filename' : 'by created date'}`)
+        return recording
+      }
+    }
+  }
   
   for (const recording of recordings) {
     const normalizedName = recording.name.toLowerCase()
@@ -463,20 +505,19 @@ function findRecordingForSession(
       continue
     }
     
-    // Check for cohort type and number match
-    // Patterns: "Basic 6.0", "Cohort - 6.0", "Cohort-6.0", "Cohort Basic 6.0"
-    const hasMatchingCohort = 
-      // Direct match: "Basic 6.0" or "basic 6.0"
-      normalizedName.includes(`${cohortTypeFromSubject} ${cohortNumberFromSubject}`) ||
-      normalizedName.includes(`${cohortTypeFromSubject}${cohortNumberFromSubject}`) ||
-      // Just the number: "- 6.0" or "-6.0" 
-      (cohortNumberFromSubject && (
-        normalizedName.includes(`- ${cohortNumberFromSubject}`) ||
-        normalizedName.includes(`-${cohortNumberFromSubject}`)
-      )) ||
-      // Type only for specific matches
-      (cohortTypeFromSubject && normalizedName.includes(cohortTypeFromSubject))
-    
+    // Strict cohort matching to avoid cross-cohort false positives (e.g., Basic 6.0 vs Basic 7.0).
+    const hasCohortType = !!cohortTypeFromSubject &&
+      new RegExp(`\\b${escapeRegex(cohortTypeFromSubject)}\\b`, 'i').test(normalizedName)
+
+    const hasCohortNumber = !!cohortNumberFromSubject &&
+      new RegExp(`(^|[^\\d])${escapeRegex(cohortNumberFromSubject)}([^\\d]|$)`, 'i').test(normalizedName)
+
+    // If we know both type and number, require both.
+    // If number is missing, do not use type-only matching (too risky).
+    const hasMatchingCohort = cohortTypeFromSubject && cohortNumberFromSubject
+      ? hasCohortType && hasCohortNumber
+      : false
+
     if (hasMatchingCohort) {
       console.log(`    ✓ Match found: ${recording.name}`)
       console.log(`      Date match: ${hasDate ? 'in filename' : 'by created date'}`)
@@ -503,6 +544,15 @@ function findRecordingForSession(
       continue
     }
     
+    // If cohort number is known, enforce it in fuzzy path too.
+    if (cohortNumberFromSubject) {
+      const hasCohortNumber = new RegExp(`(^|[^\\d])${escapeRegex(cohortNumberFromSubject)}([^\\d]|$)`, 'i')
+        .test(normalizedName)
+      if (!hasCohortNumber) {
+        continue
+      }
+    }
+
     // Check if key subject parts are present
     const matchingParts = subjectParts.filter(part => normalizedName.includes(part))
     if (matchingParts.length >= 2) {
