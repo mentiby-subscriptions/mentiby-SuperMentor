@@ -435,14 +435,19 @@ function generateUpdateEmailHTML(params: {
   subjectName: string
   hasOldMeetingLink: boolean
   newMeetingLink?: string | null
+  sessionType?: string
   updateType?: 'reschedule' | 'mentor_removed' | 'mentor_assigned' | 'details_updated'
   additionalInfo?: string
 }): string {
   const { 
     recipientName, recipientType, cohortType, cohortNumber, 
     oldDateFormatted, oldTime, newDateFormatted, newTime, 
-    subjectName, hasOldMeetingLink, newMeetingLink, updateType = 'reschedule', additionalInfo 
+    subjectName, hasOldMeetingLink, newMeetingLink, sessionType, updateType = 'reschedule', additionalInfo 
   } = params
+  const isContest = sessionType?.toLowerCase() === 'contest'
+  const dashboardLink = recipientType === 'student'
+    ? 'https://mentiby-student.vercel.app'
+    : 'https://mentiby-mentor.vercel.app'
 
   let headerColor = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
   let headerIcon = '⚠️'
@@ -524,7 +529,17 @@ function generateUpdateEmailHTML(params: {
               </p>
               ` : ''}
 
-              ${newMeetingLink ? `
+              ${isContest ? `
+              <!-- Contest Dashboard Button -->
+              <div style="margin: 20px 0; text-align: center;">
+                <a href="${dashboardLink}" 
+                   style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); 
+                          color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; 
+                          font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(99, 102, 241, 0.3);">
+                  Open Dashboard to Continue with Contest
+                </a>
+              </div>
+              ` : newMeetingLink ? `
               <!-- Meeting Link Button -->
               <div style="margin: 20px 0; text-align: center;">
                 <a href="${newMeetingLink}" 
@@ -750,6 +765,7 @@ async function sendUpdateNotifications(params: {
                 subjectName,
                 hasOldMeetingLink: !!session.teams_meeting_link,
                 newMeetingLink,
+                sessionType: session.session_type,
                 updateType
               })
             })
@@ -809,6 +825,7 @@ async function sendUpdateNotifications(params: {
               subjectName,
               hasOldMeetingLink: false,
               newMeetingLink,
+              sessionType: session.session_type,
               updateType: 'details_updated',
               additionalInfo: swapStatus
             })
@@ -858,6 +875,7 @@ async function sendUpdateNotifications(params: {
               subjectName,
               hasOldMeetingLink: false,
               newMeetingLink,
+              sessionType: session.session_type,
               updateType: 'mentor_assigned',
               additionalInfo: `You are covering this class for ${originalMentor?.['Name'] || 'another mentor'}.`
             })
@@ -906,6 +924,7 @@ async function sendUpdateNotifications(params: {
               newTime,
               subjectName,
               hasOldMeetingLink: false,
+              sessionType: session.session_type,
               updateType: 'mentor_removed',
               additionalInfo: 'Your class coverage has been removed.'
             })
@@ -954,6 +973,7 @@ async function sendUpdateNotifications(params: {
             subjectName,
             hasOldMeetingLink: !!session.teams_meeting_link,
             newMeetingLink,
+            sessionType: session.session_type,
             updateType
           })
         })
@@ -1003,6 +1023,7 @@ async function sendUpdateNotifications(params: {
             newTime,
             subjectName,
             hasOldMeetingLink: false,
+            sessionType: session.session_type,
             updateType: 'mentor_removed',
             additionalInfo: 'This class has been reassigned to another mentor.'
           })
@@ -1051,6 +1072,7 @@ async function sendUpdateNotifications(params: {
             newTime,
             subjectName,
             hasOldMeetingLink: false,
+            sessionType: session.session_type,
             updateType: 'mentor_assigned',
             additionalInfo: 'You have been assigned to take this class.'
           })
@@ -1102,6 +1124,7 @@ async function sendUpdateNotifications(params: {
                 subjectName,
                 hasOldMeetingLink: !!session.teams_meeting_link,
                 newMeetingLink,
+                sessionType: session.session_type,
                 updateType,
                 additionalInfo: oldMentor ? `Mentor changed from ${oldMentor['Name']} to ${currentMentor?.['Name'] || 'N/A'}` : undefined
               })

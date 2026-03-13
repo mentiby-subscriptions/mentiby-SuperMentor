@@ -73,6 +73,8 @@ export function generateStudentEmailHTML(params: {
   mentorName: string
 }): string {
   const { studentName, sessionDate, sessionTime, sessionDay, subjectName, subjectTopic, sessionType, meetingLink, mentorName } = params
+  const isContest = sessionType?.toLowerCase() === 'contest'
+  const studentDashboardLink = 'https://mentiby-student.vercel.app'
 
   return `
 <!DOCTYPE html>
@@ -127,23 +129,34 @@ export function generateStudentEmailHTML(params: {
         </table>
       </div>
       
+      ${!isContest ? `
       <!-- Join Button -->
       <div style="text-align: center; margin: 30px 0;">
         <a href="${meetingLink}" style="display: inline-block; background: linear-gradient(135deg, #f97316, #ea580c); color: white; text-decoration: none; padding: 14px 40px; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(249,115,22,0.4);">
           🎥 Join Session on Teams
         </a>
       </div>
+      ` : `
+      <!-- Contest Dashboard Button -->
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${studentDashboardLink}" style="display: inline-block; background: linear-gradient(135deg, #f97316, #ea580c); color: white; text-decoration: none; padding: 14px 40px; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(249,115,22,0.4);">
+          Open Dashboard to Continue with Contest
+        </a>
+      </div>
+      `}
       
       <p style="color: #666; font-size: 14px; text-align: center; margin-top: 20px;">
         Can't make it at this time? No worries!
       </p>
       
+      ${!isContest ? `
       <!-- Dashboard Link -->
       <div style="text-align: center; margin: 15px 0;">
-        <a href="https://mentiby-student.vercel.app" style="display: inline-block; background: #f3f4f6; color: #374151; text-decoration: none; padding: 10px 24px; border-radius: 6px; font-size: 14px; border: 1px solid #e5e7eb;">
+        <a href="${studentDashboardLink}" style="display: inline-block; background: #f3f4f6; color: #374151; text-decoration: none; padding: 10px 24px; border-radius: 6px; font-size: 14px; border: 1px solid #e5e7eb;">
           View Dashboard
         </a>
       </div>
+      ` : ''}
     </div>
     
     <!-- Footer -->
@@ -175,6 +188,8 @@ export function generateMentorEmailHTML(params: {
   studentCount: number
 }): string {
   const { mentorName, sessionDate, sessionTime, sessionDay, subjectName, subjectTopic, sessionType, meetingLink, cohortName, studentCount } = params
+  const isContest = sessionType?.toLowerCase() === 'contest'
+  const mentorDashboardLink = 'https://mentiby-mentor.vercel.app'
 
   return `
 <!DOCTYPE html>
@@ -229,23 +244,34 @@ export function generateMentorEmailHTML(params: {
         </table>
       </div>
       
+      ${!isContest ? `
       <!-- Join Button -->
       <div style="text-align: center; margin: 30px 0;">
         <a href="${meetingLink}" style="display: inline-block; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; text-decoration: none; padding: 14px 40px; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(139,92,246,0.4);">
           🎥 Start Session on Teams
         </a>
       </div>
+      ` : `
+      <!-- Contest Dashboard Button -->
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${mentorDashboardLink}" style="display: inline-block; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; text-decoration: none; padding: 14px 40px; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(139,92,246,0.4);">
+          Open Dashboard to Continue with Contest
+        </a>
+      </div>
+      `}
       
       <p style="color: #666; font-size: 14px; text-align: center;">
         Need to reschedule? You can Postpone or Prepone the session:
       </p>
       
+      ${!isContest ? `
       <!-- Dashboard Link -->
       <div style="text-align: center; margin: 15px 0;">
-        <a href="https://mentiby-mentor.vercel.app" style="display: inline-block; background: linear-gradient(135deg, #f97316, #ea580c); color: white; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600;">
+        <a href="${mentorDashboardLink}" style="display: inline-block; background: linear-gradient(135deg, #f97316, #ea580c); color: white; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600;">
           Open Mentor Dashboard
         </a>
       </div>
+      ` : ''}
     </div>
     
     <!-- Footer -->
